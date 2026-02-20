@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { sendTemplateMessage, WhatsAppApiError } from "@/lib/whatsapp";
 
 export async function POST(request: NextRequest) {
+  let to = "";
   try {
     // Auth guard
     const supabase = await createClient();
@@ -14,7 +15,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { to, templateName, language, components } = await request.json();
+    const { to: toParam, templateName, language, components } = await request.json();
+    to = toParam;
     if (!to || !templateName) {
       return NextResponse.json(
         { error: "to and templateName are required" },
