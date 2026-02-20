@@ -44,14 +44,18 @@ export default function ChatWindow({ conversation, onUpdate }: Props) {
       ? current.filter((id) => id !== uid)
       : [...current, uid];
 
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("conversations")
-      .update({ assignees: next })
-      .eq("id", conversation.id)
-      .select("*, contact:contacts(*)")
-      .single();
-    if (data) onUpdate(data as Conversation);
+    // Optimistic update — reflect change immediately in the UI
+    onUpdate({ ...conversation, assignees: next });
+
+    const res = await fetch(`/api/conversations/${conversation.id}/assignees`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignees: next }),
+    });
+    if (res.ok) {
+      const { conversation: updated } = await res.json();
+      if (updated) onUpdate(updated as Conversation);
+    }
   };
 
   // Fetch messages when conversation changes + subscribe to realtime
