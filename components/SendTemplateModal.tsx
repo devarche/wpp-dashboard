@@ -107,23 +107,25 @@ export default function SendTemplateModal({ template, onClose }: Props) {
   function buildComponents() {
     const comps = [];
 
+    // Named variables (non-numeric) require parameter_name in the API call
+    function makeParam(varName: string, value: string) {
+      const isNamed = isNaN(parseInt(varName, 10));
+      return isNamed
+        ? { type: "text", parameter_name: varName, text: value }
+        : { type: "text", text: value };
+    }
+
     if (headerVarCount > 0) {
       comps.push({
         type: "header",
-        parameters: Array.from({ length: headerVarCount }, (_, i) => ({
-          type: "text",
-          text: headerVals[i] ?? "",
-        })),
+        parameters: headerVarNames.map((varName, i) => makeParam(varName, headerVals[i] ?? "")),
       });
     }
 
     if (bodyVarCount > 0) {
       comps.push({
         type: "body",
-        parameters: Array.from({ length: bodyVarCount }, (_, i) => ({
-          type: "text",
-          text: bodyVals[i] ?? "",
-        })),
+        parameters: bodyVarNames.map((varName, i) => makeParam(varName, bodyVals[i] ?? "")),
       });
     }
 
