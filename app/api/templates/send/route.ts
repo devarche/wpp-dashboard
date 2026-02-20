@@ -1,0 +1,94 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
+import { sendTemplateMessage } from "@/lib/whatsapp";
+
+export async function POST(request: NextRequest) {
+  try {
+    // Auth guard
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { to, templateName, language, components } = await request.json();
+    if (!to || !templateName) {
+      return NextResponse.json(
+        { error: "to and templateName are required" },
+        { status: 400 }
+      );
+    }
+
+    const phoneNumberId = process.env.WA_PHONE_NUMBER_ID!;
+
+    // Send via WhatsApp Cloud API
+    const waRes = await sendTemplateMessage(
+      phoneNumberId,
+      to,
+      templateName,
+      language ?? "es_AR",
+      components
+    );
+    const wamid = waRes.messages?.[0]?.id ?? null;
+
+    // Persist to DB (upsert contact → find/create conversation → insert message)
+    const service = createServiceClient();
+
+    const { data: contact } = await service
+      .from("contacts")
+      .upsert({ phone: to }, { onConflict: "phone" })
+      .select()
+      .single();
+
+    if (contact) {
+      let { data: conversation } = await service
+        .from("conversations")
+        .select("*")
+        .eq("contact_id", contact.id)
+        .maybeSingle();
+
+      if (!conversation) {
+        const { data: newConv } = await service
+          .from("conversations")
+          .insert({ contact_id: contact.id })
+          .select()
+          .single();
+        conversation = newConv;
+      }
+
+      if (conversation) {
+        const preview = `[Template: ${templateName}]`;
+        await service.from("messages").insert({
+          conversation_id: conversation.id,
+          wamid,
+          direction: "outbound",
+          type: "template",
+          content: { template: { name: templateName, language } },
+          status: "sent",
+        });
+        await service
+          .from("conversations")
+          .update({
+            last_message: preview,
+            last_message_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", conversation.id);
+      }
+    }
+
+    return NextResponse.json({ ok: true, wamid });
+  } catch (err: unknown) {
+    console.error("[templates/send] error:", err);
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error ? err.message : "Failed to send template",
+      },
+      { status: 500 }
+    );
+  }
+}
