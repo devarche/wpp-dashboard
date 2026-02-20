@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { sendTemplateMessage } from "@/lib/whatsapp";
+import { sendTemplateMessage, WhatsAppApiError } from "@/lib/whatsapp";
 
 export async function POST(request: NextRequest) {
   try {
@@ -82,12 +82,14 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, wamid });
   } catch (err: unknown) {
+    if (err instanceof WhatsAppApiError && err.code === 131026) {
+      const service2 = createServiceClient();
+      await service2.from("contacts").update({ opted_out: true }).eq("phone", to);
+      return NextResponse.json({ error: "opted_out", opted_out: true }, { status: 400 });
+    }
     console.error("[templates/send] error:", err);
     return NextResponse.json(
-      {
-        error:
-          err instanceof Error ? err.message : "Failed to send template",
-      },
+      { error: err instanceof Error ? err.message : "Failed to send template" },
       { status: 500 }
     );
   }

@@ -62,7 +62,7 @@ export default function ConversationList({ selectedId, onSelect }: Props) {
   }, [fetchConversations]);
 
   const filtered = conversations.filter((c) => {
-    if (filter === "mine" && c.assigned_to !== userId) return false;
+    if (filter === "mine" && !(c.assignees ?? []).includes(userId ?? "")) return false;
     const q = search.toLowerCase();
     return (
       !q ||
@@ -128,8 +128,9 @@ export default function ConversationList({ selectedId, onSelect }: Props) {
             const displayName =
               conv.contact?.name || conv.contact?.phone || "Unknown";
             const initial = displayName[0].toUpperCase();
-            const isAssignedToMe = conv.assigned_to === userId;
-            const isAssigned = conv.assigned_to !== null;
+            const assignees = conv.assignees ?? [];
+            const isAssignedToMe = assignees.includes(userId ?? "");
+            const isAssigned = assignees.length > 0;
 
             return (
               <button

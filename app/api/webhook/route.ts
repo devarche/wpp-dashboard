@@ -1,6 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
+const OPT_OUT_KEYWORDS = new Set([
+  "stop", "stopall", "unsubscribe", "cancel", "end", "quit",
+  "cancelar", "detener", "parar", "salir", "baja", "desuscribir", "no quiero",
+]);
+const OPT_IN_KEYWORDS = new Set([
+  "start", "subscribe", "suscribir", "iniciar", "inicio", "alta",
+]);
+
+function detectOptChange(text: string): "opt_out" | "opt_in" | null {
+  const normalized = text.trim().toLowerCase();
+  if (OPT_OUT_KEYWORDS.has(normalized)) return "opt_out";
+  if (OPT_IN_KEYWORDS.has(normalized)) return "opt_in";
+  return null;
+}
+
 const VERIFY_TOKEN = process.env.WA_WEBHOOK_VERIFY_TOKEN!;
 
 // ─── Meta Webhook Verification (GET) ─────────────────────────────────────────
@@ -35,16 +50,22 @@ export async function POST(request: NextRequest) {
             (c: { wa_id: string }) => c.wa_id === waMessage.from
           );
 
-          // 1. Upsert contact
+          // 1. Upsert contact — detect opt-out/opt-in from text messages
+          const optChange =
+            waMessage.type === "text"
+              ? detectOptChange(waMessage.text?.body ?? "")
+              : null;
+
+          const contactUpdate: Record<string, unknown> = {
+            phone: waMessage.from,
+            name: contactInfo?.profile?.name ?? null,
+          };
+          if (optChange === "opt_out") contactUpdate.opted_out = true;
+          if (optChange === "opt_in") contactUpdate.opted_out = false;
+
           const { data: contact, error: contactErr } = await supabase
             .from("contacts")
-            .upsert(
-              {
-                phone: waMessage.from,
-                name: contactInfo?.profile?.name ?? null,
-              },
-              { onConflict: "phone" }
-            )
+            .upsert(contactUpdate, { onConflict: "phone" })
             .select()
             .single();
 

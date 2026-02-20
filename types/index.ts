@@ -3,6 +3,7 @@ export interface Contact {
   phone: string;
   name: string | null;
   profile_pic: string | null;
+  opted_out: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -14,7 +15,7 @@ export interface Conversation {
   last_message: string | null;
   unread_count: number;
   status: "open" | "closed" | "pending";
-  assigned_to: string | null;
+  assignees: string[];
   created_at: string;
   updated_at: string;
   contact: Contact | null;

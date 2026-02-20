@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { sendTextMessage } from "@/lib/whatsapp";
+import { sendTextMessage, WhatsAppApiError } from "@/lib/whatsapp";
 
 export async function POST(request: NextRequest) {
+  let toPhone = "";
   try {
     // Auth guard
     const supabase = await createClient();
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const toPhone = conversation.contact.phone;
+    toPhone = conversation.contact.phone;
     const phoneNumberId = process.env.WA_PHONE_NUMBER_ID!;
 
     // Send via WhatsApp Cloud API
@@ -67,6 +68,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, wamid });
   } catch (err: unknown) {
+    if (err instanceof WhatsAppApiError && err.code === 131026) {
+      if (toPhone) {
+        const service2 = createServiceClient();
+        await service2.from("contacts").update({ opted_out: true }).eq("phone", toPhone);
+      }
+      return NextResponse.json({ error: "opted_out", opted_out: true }, { status: 400 });
+    }
     console.error("[send] error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to send message" },

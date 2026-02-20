@@ -6,10 +6,18 @@ function apiUrl(path: string) {
   return `https://graph.facebook.com/${WA_API_VERSION}${path}`;
 }
 
+export class WhatsAppApiError extends Error {
+  code: number;
+  constructor(body: Record<string, unknown>) {
+    super(JSON.stringify(body));
+    this.code = (body.error as { code?: number } | undefined)?.code ?? 0;
+  }
+}
+
 async function assertOk(res: Response) {
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(JSON.stringify(err));
+    const body = await res.json().catch(() => ({}));
+    throw new WhatsAppApiError(body);
   }
 }
 
