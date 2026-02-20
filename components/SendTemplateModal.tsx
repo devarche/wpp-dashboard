@@ -9,23 +9,38 @@ interface Props {
   onClose: () => void;
 }
 
-/** Count variables from example field (most reliable) or by parsing {{N}} from text */
-function getVarCount(comp: MetaTemplateComponent, field: "body" | "header"): number {
-  if (field === "body" && comp.example?.body_text?.[0]) {
-    return comp.example.body_text[0].length;
+/** Extract unique variable names in order of appearance (supports {{1}} and {{name}}) */
+function extractVarNames(text: string): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const m of text.matchAll(/\{\{([^}]+)\}\}/g)) {
+    if (!seen.has(m[1])) { seen.add(m[1]); result.push(m[1]); }
   }
-  if (field === "header" && comp.example?.header_text) {
-    return comp.example.header_text.length;
-  }
-  if (comp.text) {
-    const matches = Array.from(comp.text.matchAll(/\{\{(\d+)\}\}/g));
-    return new Set(matches.map((m) => m[1])).size;
-  }
-  return 0;
+  return result;
 }
 
-function replaceVars(text: string, vals: string[]) {
-  return text.replace(/\{\{(\d+)\}\}/g, (_, n) => vals[parseInt(n) - 1] ?? `{{${n}}}`);
+/** Returns ordered list of variable names for a component */
+function getVarNames(comp: MetaTemplateComponent, field: "body" | "header"): string[] {
+  const exampleCount =
+    field === "body"
+      ? (comp.example?.body_text?.[0]?.length ?? 0)
+      : (comp.example?.header_text?.length ?? 0);
+
+  if (exampleCount > 0) {
+    // Prefer names from text when count matches
+    const fromText = comp.text ? extractVarNames(comp.text) : [];
+    if (fromText.length === exampleCount) return fromText;
+    return Array.from({ length: exampleCount }, (_, i) => String(i + 1));
+  }
+  // No examples — parse text for any {{...}}
+  return comp.text ? extractVarNames(comp.text) : [];
+}
+
+function replaceVars(text: string, names: string[], vals: string[]): string {
+  return text.replace(/\{\{([^}]+)\}\}/g, (_, varName) => {
+    const idx = names.indexOf(varName);
+    return idx >= 0 ? (vals[idx] || `{{${varName}}}`) : `{{${varName}}}`;
+  });
 }
 
 export default function SendTemplateModal({ template, onClose }: Props) {
@@ -39,15 +54,17 @@ export default function SendTemplateModal({ template, onClose }: Props) {
   const footerComp = template.components?.find((c) => c.type === "FOOTER");
   const buttonsComp = template.components?.find((c) => c.type === "BUTTONS");
 
-  // Number of variables per section
-  const headerVarCount = useMemo(
-    () => (headerComp?.format === "TEXT" && headerComp ? getVarCount(headerComp, "header") : 0),
+  // Variable names per section (supports {{1}} and {{name}})
+  const headerVarNames = useMemo(
+    () => (headerComp?.format === "TEXT" && headerComp ? getVarNames(headerComp, "header") : []),
     [headerComp]
   );
-  const bodyVarCount = useMemo(
-    () => (bodyComp ? getVarCount(bodyComp, "body") : 0),
+  const bodyVarNames = useMemo(
+    () => (bodyComp ? getVarNames(bodyComp, "body") : []),
     [bodyComp]
   );
+  const headerVarCount = headerVarNames.length;
+  const bodyVarCount = bodyVarNames.length;
 
   // Example placeholder values from Meta
   const headerExamples = useMemo(
@@ -84,7 +101,7 @@ export default function SendTemplateModal({ template, onClose }: Props) {
   // Live preview
   const bodyPreview =
     bodyComp?.text && bodyVarCount > 0
-      ? replaceVars(bodyComp.text, bodyVals)
+      ? replaceVars(bodyComp.text, bodyVarNames, bodyVals)
       : bodyComp?.text ?? "";
 
   function buildComponents() {
@@ -170,7 +187,7 @@ export default function SendTemplateModal({ template, onClose }: Props) {
           </div>
           {headerComp?.format === "TEXT" && headerComp.text && (
             <p className="text-[#e9edef] text-xs font-semibold">
-              {headerVarCount > 0 ? replaceVars(headerComp.text, headerVals) : headerComp.text}
+              {headerVarCount > 0 ? replaceVars(headerComp.text, headerVarNames, headerVals) : headerComp.text}
             </p>
           )}
           {headerComp?.format && headerComp.format !== "TEXT" && (
@@ -221,9 +238,9 @@ export default function SendTemplateModal({ template, onClose }: Props) {
             {headerVarCount > 0 && (
               <div className="mb-4">
                 <p className="text-[#8696a0] text-xs mb-2 uppercase tracking-wide">Header variables</p>
-                {Array.from({ length: headerVarCount }, (_, i) => (
-                  <div key={i} className="mb-2">
-                    <label className="block text-[#8696a0] text-xs mb-1">{`{{${i + 1}}}`}</label>
+                {headerVarNames.map((varName, i) => (
+                  <div key={varName} className="mb-2">
+                    <label className="block text-[#8696a0] text-xs mb-1">{varName}</label>
                     <input
                       type="text"
                       value={headerVals[i] ?? ""}
@@ -234,7 +251,7 @@ export default function SendTemplateModal({ template, onClose }: Props) {
                           return next;
                         })
                       }
-                      placeholder={headerExamples[i] ?? `Value for {{${i + 1}}}`}
+                      placeholder={headerExamples[i] ?? `Value for ${varName}`}
                       className="w-full bg-[#2a3942] text-[#e9edef] placeholder-[#8696a0] rounded-lg px-3 py-2 outline-none focus:ring-2 ring-[#00a884] text-sm"
                     />
                   </div>
@@ -246,9 +263,9 @@ export default function SendTemplateModal({ template, onClose }: Props) {
             {bodyVarCount > 0 && (
               <div className="mb-4">
                 <p className="text-[#8696a0] text-xs mb-2 uppercase tracking-wide">Body variables</p>
-                {Array.from({ length: bodyVarCount }, (_, i) => (
-                  <div key={i} className="mb-2">
-                    <label className="block text-[#8696a0] text-xs mb-1">{`{{${i + 1}}}`}</label>
+                {bodyVarNames.map((varName, i) => (
+                  <div key={varName} className="mb-2">
+                    <label className="block text-[#8696a0] text-xs mb-1">{varName}</label>
                     <input
                       type="text"
                       value={bodyVals[i] ?? ""}
@@ -259,7 +276,7 @@ export default function SendTemplateModal({ template, onClose }: Props) {
                           return next;
                         })
                       }
-                      placeholder={bodyExamples[i] ?? `Value for {{${i + 1}}}`}
+                      placeholder={bodyExamples[i] ?? `Value for ${varName}`}
                       className="w-full bg-[#2a3942] text-[#e9edef] placeholder-[#8696a0] rounded-lg px-3 py-2 outline-none focus:ring-2 ring-[#00a884] text-sm"
                     />
                   </div>
