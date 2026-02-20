@@ -1,25 +1,8 @@
-import { Check, CheckCheck } from "lucide-react";
+import { Check, CheckCheck, FileDown, Play } from "lucide-react";
 import type { Message } from "@/types";
 
 interface Props {
   message: Message;
-}
-
-function getMessageText(message: Message): string {
-  const c = message.content as Record<string, unknown>;
-  if (message.type === "text") {
-    const text = c.text as { body?: string } | undefined;
-    return text?.body ?? (c.body as string) ?? "";
-  }
-  if (message.type === "image") return "[Image]";
-  if (message.type === "audio") return "[Audio]";
-  if (message.type === "video") return "[Video]";
-  if (message.type === "document") return "[Document]";
-  if (message.type === "template") {
-    const tmpl = c.template as { name?: string } | undefined;
-    return tmpl?.name ? `[Template: ${tmpl.name}]` : "[Template]";
-  }
-  return `[${message.type}]`;
 }
 
 function formatTime(dateStr: string): string {
@@ -38,9 +21,124 @@ function StatusTicks({ status }: { status: string }) {
   return null;
 }
 
+function mediaUrl(id: string) {
+  return `/api/media/${id}`;
+}
+
+function getMediaId(
+  content: Record<string, unknown>,
+  field: string
+): string | null {
+  const media = content[field] as { id?: string } | undefined;
+  return media?.id ?? null;
+}
+
+function MessageContent({ message }: { message: Message }) {
+  const c = message.content as Record<string, unknown>;
+
+  if (message.type === "text") {
+    const body =
+      (c.text as { body?: string } | undefined)?.body ??
+      (c.body as string) ??
+      "";
+    return (
+      <p className="text-[#e9edef] text-sm whitespace-pre-wrap break-words leading-relaxed">
+        {body}
+      </p>
+    );
+  }
+
+  if (message.type === "image") {
+    const id = getMediaId(c, "image");
+    const caption = (c.image as { caption?: string } | undefined)?.caption;
+    return (
+      <div>
+        {id ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={mediaUrl(id)}
+            alt={caption || "Image"}
+            className="rounded-lg max-w-full max-h-64 object-cover"
+          />
+        ) : (
+          <p className="text-[#8696a0] text-sm">[Image]</p>
+        )}
+        {caption && (
+          <p className="text-[#e9edef] text-sm mt-1">{caption}</p>
+        )}
+      </div>
+    );
+  }
+
+  if (message.type === "audio") {
+    const id = getMediaId(c, "audio");
+    return id ? (
+      <audio controls className="w-56">
+        <source src={mediaUrl(id)} />
+      </audio>
+    ) : (
+      <div className="flex items-center gap-2 text-[#8696a0] text-sm">
+        <Play size={14} />
+        <span>[Audio]</span>
+      </div>
+    );
+  }
+
+  if (message.type === "video") {
+    const id = getMediaId(c, "video");
+    const caption = (c.video as { caption?: string } | undefined)?.caption;
+    return (
+      <div>
+        {id ? (
+          <video controls className="rounded-lg max-w-full max-h-64">
+            <source src={mediaUrl(id)} />
+          </video>
+        ) : (
+          <p className="text-[#8696a0] text-sm">[Video]</p>
+        )}
+        {caption && (
+          <p className="text-[#e9edef] text-sm mt-1">{caption}</p>
+        )}
+      </div>
+    );
+  }
+
+  if (message.type === "document") {
+    const id = getMediaId(c, "document");
+    const doc = c.document as
+      | { filename?: string; mime_type?: string }
+      | undefined;
+    const filename = doc?.filename ?? "document";
+    return id ? (
+      <a
+        href={mediaUrl(id)}
+        download={filename}
+        className="flex items-center gap-2 text-[#00a884] text-sm hover:underline"
+      >
+        <FileDown size={15} />
+        {filename}
+      </a>
+    ) : (
+      <p className="text-[#8696a0] text-sm">[Document: {filename}]</p>
+    );
+  }
+
+  if (message.type === "template") {
+    const tmpl = c.template as { name?: string } | undefined;
+    return (
+      <p className="text-[#e9edef] text-sm italic">
+        {tmpl?.name ? `[Template: ${tmpl.name}]` : "[Template]"}
+      </p>
+    );
+  }
+
+  return (
+    <p className="text-[#8696a0] text-sm">[{message.type}]</p>
+  );
+}
+
 export default function MessageBubble({ message }: Props) {
   const isOut = message.direction === "outbound";
-  const text = getMessageText(message);
 
   return (
     <div className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
@@ -51,9 +149,7 @@ export default function MessageBubble({ message }: Props) {
             : "bg-[#202c33] rounded-tl-none"
         }`}
       >
-        <p className="text-[#e9edef] text-sm whitespace-pre-wrap break-words leading-relaxed">
-          {text}
-        </p>
+        <MessageContent message={message} />
         <div
           className={`flex items-center gap-1 mt-1 ${
             isOut ? "justify-end" : "justify-start"
