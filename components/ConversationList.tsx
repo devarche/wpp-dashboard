@@ -56,8 +56,17 @@ export default function ConversationList({ selectedId, onSelect }: Props) {
       )
       .subscribe();
 
+    // Refetch when the tab becomes visible again (Realtime can miss events while hidden)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchConversations();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       supabase.removeChannel(channel);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [fetchConversations]);
 
