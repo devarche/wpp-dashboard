@@ -30,6 +30,27 @@ export interface Message {
   created_at: string;
 }
 
+export interface MetaTemplateButton {
+  type: string;        // "URL" | "QUICK_REPLY" | "PHONE_NUMBER" | "COPY_CODE"
+  text: string;
+  url?: string;
+  url_type?: string;  // "STATIC" | "DYNAMIC"
+  phone_number?: string;
+  example?: string[];
+}
+
+export interface MetaTemplateComponent {
+  type: string;       // "HEADER" | "BODY" | "FOOTER" | "BUTTONS"
+  text?: string;
+  format?: string;    // "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT"
+  buttons?: MetaTemplateButton[];
+  example?: {
+    body_text?: string[][];
+    header_text?: string[];
+    header_handle?: string[];
+  };
+}
+
 export interface MetaTemplate {
   id: string;
   name: string;
@@ -37,13 +58,6 @@ export interface MetaTemplate {
   category: string;
   language: string;
   components: MetaTemplateComponent[];
-}
-
-export interface MetaTemplateComponent {
-  type: string;
-  text?: string;
-  format?: string;
-  buttons?: unknown[];
 }
 
 export interface Campaign {
