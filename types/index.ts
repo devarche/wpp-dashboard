@@ -14,6 +14,7 @@ export interface Conversation {
   last_message: string | null;
   unread_count: number;
   status: "open" | "closed" | "pending";
+  assigned_to: string | null;
   created_at: string;
   updated_at: string;
   contact: Contact | null;

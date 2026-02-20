@@ -27,7 +27,7 @@ export default function DashboardPage() {
         selectedId={selected?.id ?? null}
         onSelect={handleSelect}
       />
-      <ChatWindow conversation={selected} />
+      <ChatWindow conversation={selected} onUpdate={setSelected} />
     </div>
   );
 }

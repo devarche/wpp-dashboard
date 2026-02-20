@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Search } from "lucide-react";
+import { Search, UserCheck } from "lucide-react";
 import type { Conversation } from "@/types";
 
 interface Props {
@@ -24,6 +24,14 @@ function formatTime(dateStr: string | null): string {
 export default function ConversationList({ selectedId, onSelect }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "mine">("all");
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    createClient()
+      .auth.getUser()
+      .then(({ data }) => setUserId(data.user?.id ?? null));
+  }, []);
 
   const fetchConversations = useCallback(async () => {
     const supabase = createClient();
@@ -54,8 +62,10 @@ export default function ConversationList({ selectedId, onSelect }: Props) {
   }, [fetchConversations]);
 
   const filtered = conversations.filter((c) => {
+    if (filter === "mine" && c.assigned_to !== userId) return false;
     const q = search.toLowerCase();
     return (
+      !q ||
       c.contact?.name?.toLowerCase().includes(q) ||
       c.contact?.phone?.includes(q) ||
       c.last_message?.toLowerCase().includes(q)
@@ -67,6 +77,31 @@ export default function ConversationList({ selectedId, onSelect }: Props) {
       {/* Header */}
       <div className="p-3 border-b border-[#2a3942]">
         <h2 className="text-[#e9edef] font-semibold px-1 mb-2">Chats</h2>
+
+        {/* Filter toggle */}
+        <div className="flex gap-1 mb-2">
+          <button
+            onClick={() => setFilter("all")}
+            className={`flex-1 py-1 text-xs rounded-lg font-medium transition-colors ${
+              filter === "all"
+                ? "bg-[#00a884] text-white"
+                : "bg-[#202c33] text-[#8696a0] hover:text-[#e9edef]"
+            }`}
+          >
+            Todas
+          </button>
+          <button
+            onClick={() => setFilter("mine")}
+            className={`flex-1 py-1 text-xs rounded-lg font-medium transition-colors ${
+              filter === "mine"
+                ? "bg-[#00a884] text-white"
+                : "bg-[#202c33] text-[#8696a0] hover:text-[#e9edef]"
+            }`}
+          >
+            Mías
+          </button>
+        </div>
+
         <div className="relative">
           <Search
             size={15}
@@ -86,13 +121,15 @@ export default function ConversationList({ selectedId, onSelect }: Props) {
       <div className="flex-1 overflow-y-auto">
         {filtered.length === 0 ? (
           <div className="p-8 text-center text-[#8696a0] text-sm">
-            {search ? "No conversations found" : "No conversations yet"}
+            {search || filter === "mine" ? "No hay conversaciones" : "No conversations yet"}
           </div>
         ) : (
           filtered.map((conv) => {
             const displayName =
               conv.contact?.name || conv.contact?.phone || "Unknown";
             const initial = displayName[0].toUpperCase();
+            const isAssignedToMe = conv.assigned_to === userId;
+            const isAssigned = conv.assigned_to !== null;
 
             return (
               <button
@@ -102,9 +139,16 @@ export default function ConversationList({ selectedId, onSelect }: Props) {
                   selectedId === conv.id ? "bg-[#2a3942]" : ""
                 }`}
               >
-                {/* Avatar */}
-                <div className="w-12 h-12 rounded-full bg-[#2a3942] flex-shrink-0 flex items-center justify-center text-[#e9edef] font-semibold text-sm">
-                  {initial}
+                {/* Avatar with assigned indicator */}
+                <div className="relative w-12 h-12 flex-shrink-0">
+                  <div className="w-12 h-12 rounded-full bg-[#2a3942] flex items-center justify-center text-[#e9edef] font-semibold text-sm">
+                    {initial}
+                  </div>
+                  {isAssigned && (
+                    <div className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center ${isAssignedToMe ? "bg-[#00a884]" : "bg-[#8696a0]"}`}>
+                      <UserCheck size={9} className="text-white" />
+                    </div>
+                  )}
                 </div>
 
                 {/* Info */}

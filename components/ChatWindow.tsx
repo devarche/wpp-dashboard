@@ -3,18 +3,39 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MessageBubble from "./MessageBubble";
-import { Send, MessageSquare } from "lucide-react";
+import { Send, MessageSquare, UserCheck, UserMinus } from "lucide-react";
 import type { Conversation, Message } from "@/types";
 
 interface Props {
   conversation: Conversation | null;
+  onUpdate: (conversation: Conversation) => void;
 }
 
-export default function ChatWindow({ conversation }: Props) {
+export default function ChatWindow({ conversation, onUpdate }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    createClient()
+      .auth.getUser()
+      .then(({ data }) => setUserId(data.user?.id ?? null));
+  }, []);
+
+  const handleAssign = async () => {
+    if (!conversation || !userId) return;
+    const newAssigned = conversation.assigned_to === userId ? null : userId;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("conversations")
+      .update({ assigned_to: newAssigned })
+      .eq("id", conversation.id)
+      .select("*, contact:contacts(*)")
+      .single();
+    if (data) onUpdate(data as Conversation);
+  };
 
   // Fetch messages when conversation changes + subscribe to realtime
   useEffect(() => {
@@ -133,12 +154,30 @@ export default function ChatWindow({ conversation }: Props) {
         <div className="w-10 h-10 rounded-full bg-[#2a3942] flex items-center justify-center text-[#e9edef] font-semibold text-sm flex-shrink-0">
           {displayName[0].toUpperCase()}
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <p className="text-[#e9edef] font-medium text-sm">{displayName}</p>
           <p className="text-[#8696a0] text-xs">
             {conversation.contact?.phone}
           </p>
         </div>
+        {/* Assign button */}
+        <button
+          onClick={handleAssign}
+          title={conversation.assigned_to === userId ? "Desasignar" : "Asignar a mí"}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0 ${
+            conversation.assigned_to === userId
+              ? "bg-[#00a884]/20 text-[#00a884] hover:bg-red-900/20 hover:text-red-400"
+              : conversation.assigned_to !== null
+              ? "bg-[#2a3942] text-[#8696a0] hover:text-[#e9edef]"
+              : "bg-[#2a3942] text-[#8696a0] hover:text-[#e9edef]"
+          }`}
+        >
+          {conversation.assigned_to === userId ? (
+            <><UserMinus size={13} /> Desasignar</>
+          ) : (
+            <><UserCheck size={13} /> Asignar</>
+          )}
+        </button>
       </div>
 
       {/* Messages */}
