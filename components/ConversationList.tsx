@@ -1,34 +1,26 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Archive, Search, Tag as TagIcon, UserCheck, X } from "lucide-react";
+import { Archive, ChevronDown, Search, Tag as TagIcon, UserCheck, X } from "lucide-react";
 import type { Conversation, Tag } from "@/types";
-
-const TAG_COLORS = [
-  "#00a884", "#ef4444", "#f97316", "#eab308",
-  "#22c55e", "#3b82f6", "#8b5cf6", "#ec4899",
-];
 
 interface Props {
   conversations: Conversation[];
   tags: Tag[];
   selectedId: string | null;
-  selectedTagId: string | null;
+  selectedTagIds: string[];
   archiveFilter: "active" | "archived";
   onSelect: (conversation: Conversation) => void;
-  onTagFilterChange: (tagId: string | null) => void;
+  onTagFilterChange: (tagIds: string[]) => void;
   onArchiveFilterChange: (filter: "active" | "archived") => void;
-  onCreateTag: (name: string, color: string) => Promise<void>;
-  onDeleteTag: (tagId: string) => void;
 }
 
 function formatTime(dateStr: string | null): string {
   if (!dateStr) return "";
   const date = new Date(dateStr);
   const diffMs = Date.now() - date.getTime();
-  const dayMs = 24 * 60 * 60 * 1000;
-  if (diffMs < dayMs) {
+  if (diffMs < 24 * 60 * 60 * 1000) {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
@@ -38,20 +30,17 @@ export default function ConversationList({
   conversations,
   tags,
   selectedId,
-  selectedTagId,
+  selectedTagIds,
   archiveFilter,
   onSelect,
   onTagFilterChange,
   onArchiveFilterChange,
-  onCreateTag,
-  onDeleteTag,
 }: Props) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "mine">("all");
   const [userId, setUserId] = useState<string | null>(null);
-  const [newTagName, setNewTagName] = useState("");
-  const [selectedColor, setSelectedColor] = useState(TAG_COLORS[0]);
-  const [creatingTag, setCreatingTag] = useState(false);
+  const [showTagDropdown, setShowTagDropdown] = useState(false);
+  const tagDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     createClient()
@@ -59,11 +48,34 @@ export default function ConversationList({
       .then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
 
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (tagDropdownRef.current && !tagDropdownRef.current.contains(e.target as Node)) {
+        setShowTagDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const toggleTag = (tagId: string) => {
+    if (selectedTagIds.includes(tagId)) {
+      onTagFilterChange(selectedTagIds.filter((id) => id !== tagId));
+    } else {
+      onTagFilterChange([...selectedTagIds, tagId]);
+    }
+  };
+
   const filtered = conversations.filter((c) => {
     if (archiveFilter === "active" && c.archived) return false;
     if (archiveFilter === "archived" && !c.archived) return false;
     if (filter === "mine" && !(c.assignees ?? []).includes(userId ?? "")) return false;
-    if (selectedTagId && !(c.tags ?? []).some((t) => t.id === selectedTagId)) return false;
+    // Multi-select: show conversations that have ALL selected tags
+    if (selectedTagIds.length > 0) {
+      const convTagIds = (c.tags ?? []).map((t) => t.id);
+      if (!selectedTagIds.every((id) => convTagIds.includes(id))) return false;
+    }
     const q = search.toLowerCase();
     return (
       !q ||
@@ -72,18 +84,6 @@ export default function ConversationList({
       c.last_message?.toLowerCase().includes(q)
     );
   });
-
-  const handleCreateTag = async () => {
-    const name = newTagName.trim();
-    if (!name || creatingTag) return;
-    setCreatingTag(true);
-    try {
-      await onCreateTag(name, selectedColor);
-      setNewTagName("");
-    } finally {
-      setCreatingTag(false);
-    }
-  };
 
   return (
     <div className="w-80 flex-shrink-0 border-r border-[#2a3942] flex flex-col bg-[#111b21]">
@@ -137,88 +137,102 @@ export default function ConversationList({
           />
         </div>
 
-        {/* Tag filter */}
-        <div>
-          <div className="flex items-center gap-1 mb-1.5">
-            <TagIcon size={11} className="text-[#8696a0]" />
-            <span className="text-[#8696a0] text-[11px]">Filtrar por tag</span>
-          </div>
+        {/* Tag multi-select filter */}
+        <div ref={tagDropdownRef} className="relative">
+          <button
+            onClick={() => setShowTagDropdown((v) => !v)}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors ${
+              selectedTagIds.length > 0
+                ? "bg-[#00a884]/15 text-[#00a884] border border-[#00a884]/30"
+                : "bg-[#202c33] text-[#8696a0] hover:text-[#e9edef]"
+            }`}
+          >
+            <TagIcon size={13} className="flex-shrink-0" />
+            <span className="flex-1 text-left">
+              {selectedTagIds.length === 0
+                ? "Filtrar por tags"
+                : `${selectedTagIds.length} tag${selectedTagIds.length > 1 ? "s" : ""} seleccionada${selectedTagIds.length > 1 ? "s" : ""}`}
+            </span>
+            <ChevronDown
+              size={13}
+              className={`flex-shrink-0 transition-transform ${showTagDropdown ? "rotate-180" : ""}`}
+            />
+          </button>
 
-          {/* Filter pills */}
-          <div className="flex gap-1 flex-wrap mb-2">
-            <button
-              onClick={() => onTagFilterChange(null)}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                selectedTagId === null
-                  ? "bg-[#00a884] text-white"
-                  : "bg-[#202c33] text-[#8696a0] hover:text-[#e9edef]"
-              }`}
-            >
-              Todas
-            </button>
-            {tags.map((tag) => (
-              <div key={tag.id} className="relative group flex items-center">
-                <button
-                  onClick={() => onTagFilterChange(selectedTagId === tag.id ? null : tag.id)}
-                  className="pl-2 pr-5 py-0.5 rounded text-[11px] font-medium text-white transition-opacity"
-                  style={{ backgroundColor: tag.color || "#00a884" }}
-                >
-                  {tag.name}
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteTag(tag.id);
-                  }}
-                  className="absolute right-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Eliminar tag"
-                >
-                  <X size={9} className="text-white/80 hover:text-white" />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Create tag */}
-          <div className="space-y-1.5">
-            {/* Color picker */}
-            <div className="flex gap-1.5">
-              {TAG_COLORS.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setSelectedColor(c)}
-                  className={`w-4 h-4 rounded-full flex-shrink-0 transition-transform ${
-                    selectedColor === c ? "ring-2 ring-white scale-110" : ""
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
-            {/* Name + submit */}
-            <div className="flex gap-1">
-              <input
-                type="text"
-                value={newTagName}
-                onChange={(e) => setNewTagName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleCreateTag();
-                  }
-                }}
-                placeholder="Nueva tag…"
-                className="flex-1 bg-[#202c33] text-[#e9edef] placeholder-[#8696a0] rounded px-2 py-1 text-xs outline-none"
-              />
+          {/* Selected tag chips */}
+          {selectedTagIds.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {selectedTagIds.map((id) => {
+                const tag = tags.find((t) => t.id === id);
+                if (!tag) return null;
+                return (
+                  <span
+                    key={id}
+                    className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-white font-medium"
+                    style={{ backgroundColor: tag.color || "#00a884" }}
+                  >
+                    {tag.name}
+                    <button
+                      onClick={() => toggleTag(id)}
+                      className="opacity-70 hover:opacity-100"
+                    >
+                      <X size={9} />
+                    </button>
+                  </span>
+                );
+              })}
               <button
-                onClick={handleCreateTag}
-                disabled={creatingTag || !newTagName.trim()}
-                className="px-2.5 py-1 rounded text-white text-xs font-bold disabled:opacity-40 transition-opacity"
-                style={{ backgroundColor: selectedColor }}
+                onClick={() => onTagFilterChange([])}
+                className="text-[10px] text-[#8696a0] hover:text-[#e9edef] px-1 py-0.5"
               >
-                +
+                Limpiar
               </button>
             </div>
-          </div>
+          )}
+
+          {/* Dropdown */}
+          {showTagDropdown && (
+            <div className="absolute left-0 right-0 top-full mt-1 bg-[#202c33] border border-[#2a3942] rounded-xl shadow-xl z-30 overflow-hidden">
+              {tags.length === 0 ? (
+                <p className="text-[#8696a0] text-xs p-3 text-center">
+                  Sin tags — creá una en Configuración
+                </p>
+              ) : (
+                <div className="max-h-52 overflow-y-auto">
+                  {tags.map((tag) => {
+                    const isOn = selectedTagIds.includes(tag.id);
+                    return (
+                      <button
+                        key={tag.id}
+                        onClick={() => toggleTag(tag.id)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-[#2a3942] transition-colors text-left"
+                      >
+                        {/* Checkbox */}
+                        <div
+                          className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
+                            isOn ? "border-transparent" : "border-[#8696a0]"
+                          }`}
+                          style={isOn ? { backgroundColor: tag.color || "#00a884" } : {}}
+                        >
+                          {isOn && (
+                            <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                              <path d="M1 3.5L3.5 6L8 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </div>
+                        {/* Color dot */}
+                        <span
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: tag.color || "#00a884" }}
+                        />
+                        <span className="text-[#e9edef] text-xs truncate">{tag.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
