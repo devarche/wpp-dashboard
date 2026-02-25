@@ -1,4 +1,4 @@
-import { Check, CheckCheck, FileDown, Play } from "lucide-react";
+import { Check, CheckCheck, Clock, FileDown, Play, AlertCircle } from "lucide-react";
 import type { Message } from "@/types";
 
 interface Props {
@@ -13,10 +13,10 @@ function formatTime(dateStr: string): string {
 }
 
 function StatusTicks({ status }: { status: string }) {
-  if (status === "read")
-    return <CheckCheck size={13} className="text-[#53bdeb]" />;
-  if (status === "delivered")
-    return <CheckCheck size={13} className="text-[#8696a0]" />;
+  if (status === "sending") return <Clock size={12} className="text-[#8696a0] animate-pulse" />;
+  if (status === "failed") return <AlertCircle size={12} className="text-red-400" />;
+  if (status === "read") return <CheckCheck size={13} className="text-[#53bdeb]" />;
+  if (status === "delivered") return <CheckCheck size={13} className="text-[#8696a0]" />;
   if (status === "sent") return <Check size={13} className="text-[#8696a0]" />;
   return null;
 }
@@ -143,9 +143,11 @@ export default function MessageBubble({ message }: Props) {
   return (
     <div className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[65%] rounded-xl px-3 py-2 shadow-sm ${
+        className={`max-w-[65%] rounded-xl px-3 py-2 shadow-sm transition-opacity ${
+          message.status === "sending" ? "opacity-60" : "opacity-100"
+        } ${
           isOut
-            ? "bg-[#005c4b] rounded-tr-none"
+            ? message.status === "failed" ? "bg-red-900/60 rounded-tr-none" : "bg-[#005c4b] rounded-tr-none"
             : "bg-[#202c33] rounded-tl-none"
         }`}
       >

@@ -8,6 +8,14 @@ export interface Contact {
   updated_at: string;
 }
 
+export interface Tag {
+  id: string;
+  name: string;
+  color: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 export interface Conversation {
   id: string;
   contact_id: string;
@@ -16,6 +24,8 @@ export interface Conversation {
   unread_count: number;
   status: "open" | "closed" | "pending";
   assignees: string[];
+  archived: boolean;
+  tags: Tag[];
   created_at: string;
   updated_at: string;
   contact: Contact | null;
