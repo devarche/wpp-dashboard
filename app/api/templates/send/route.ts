@@ -62,13 +62,22 @@ export async function POST(request: NextRequest) {
       }
 
       if (conversation) {
+        // Look up template body text for message preview
+        const { data: localTmpl } = await service
+          .from("templates")
+          .select("components")
+          .eq("name", templateName)
+          .maybeSingle();
+        const tmplComponents = localTmpl?.components as { type: string; text?: string }[] | null;
+        const templateBody = tmplComponents?.find((c) => c.type === "BODY")?.text ?? null;
+
         const preview = `[Template: ${templateName}]`;
         await service.from("messages").insert({
           conversation_id: conversation.id,
           wamid,
           direction: "outbound",
           type: "template",
-          content: { template: { name: templateName, language } },
+          content: { template: { name: templateName, language, body: templateBody } },
           status: "sent",
         });
         await service

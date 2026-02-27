@@ -19,6 +19,15 @@ import type { Campaign, MetaTemplate } from "@/types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface CampaignRecipient {
+  id: string;
+  status: string;
+  sent_at: string | null;
+  replied_at: string | null;
+  wamid: string | null;
+  contact: { phone: string; name: string | null } | null;
+}
+
 interface ParsedRow {
   [col: string]: string;
 }
@@ -131,6 +140,8 @@ export default function CampaignsPage() {
   const [templates, setTemplates] = useState<MetaTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [recipients, setRecipients] = useState<Record<string, CampaignRecipient[]>>({});
+  const [loadingRecipients, setLoadingRecipients] = useState<string | null>(null);
 
   // Create modal
   const [showCreate, setShowCreate] = useState(false);
@@ -153,6 +164,20 @@ export default function CampaignsPage() {
   const [sendPartial, setSendPartial] = useState(false);
   const [sendCount, setSendCount] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const fetchRecipients = useCallback(async (campaignId: string) => {
+    if (recipients[campaignId]) return; // already loaded
+    setLoadingRecipients(campaignId);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/recipients`);
+      if (res.ok) {
+        const data = await res.json();
+        setRecipients((prev) => ({ ...prev, [campaignId]: data.recipients ?? [] }));
+      }
+    } finally {
+      setLoadingRecipients(null);
+    }
+  }, [recipients]);
 
   const fetchCampaigns = useCallback(async () => {
     const res = await fetch("/api/campaigns", { cache: "no-store" });
@@ -380,9 +405,11 @@ export default function CampaignsPage() {
                 {/* Row */}
                 <div className="flex items-center gap-3 px-5 py-4">
                   <button
-                    onClick={() =>
-                      setExpandedId(expandedId === campaign.id ? null : campaign.id)
-                    }
+                    onClick={() => {
+                      const next = expandedId === campaign.id ? null : campaign.id;
+                      setExpandedId(next);
+                      if (next) fetchRecipients(next);
+                    }}
                     className="text-[#8696a0] hover:text-[#e9edef] transition-colors flex-shrink-0"
                   >
                     {expandedId === campaign.id ? (
@@ -468,21 +495,58 @@ export default function CampaignsPage() {
                   </div>
                 </div>
 
-                {/* Expanded details */}
+                {/* Expanded details + recipients */}
                 {expandedId === campaign.id && (
-                  <div className="border-t border-[#2a3942] px-5 py-3 text-xs text-[#8696a0] space-y-1">
-                    <p>
-                      Template:{" "}
-                      <span className="text-[#e9edef]">
-                        {campaign.template?.name} ({campaign.template?.language})
-                      </span>
-                    </p>
-                    <p>
-                      Creada:{" "}
-                      <span className="text-[#e9edef]">
-                        {new Date(campaign.created_at).toLocaleString()}
-                      </span>
-                    </p>
+                  <div className="border-t border-[#2a3942] px-5 py-3 text-xs text-[#8696a0] space-y-3">
+                    <div className="flex gap-4">
+                      <p>Template: <span className="text-[#e9edef]">{campaign.template?.name} ({campaign.template?.language})</span></p>
+                      <p>Creada: <span className="text-[#e9edef]">{new Date(campaign.created_at).toLocaleString()}</span></p>
+                    </div>
+
+                    {/* Recipients list */}
+                    {loadingRecipients === campaign.id ? (
+                      <p className="text-[#8696a0] italic">Cargando destinatarios…</p>
+                    ) : recipients[campaign.id] && recipients[campaign.id].length > 0 ? (
+                      <div>
+                        <p className="text-[#8696a0] mb-2 uppercase tracking-wide text-[10px]">
+                          Destinatarios ({recipients[campaign.id].length})
+                        </p>
+                        <div className="bg-[#111b21] rounded-lg overflow-hidden max-h-52 overflow-y-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b border-[#2a3942]">
+                                <th className="text-left text-[#8696a0] px-3 py-2">Teléfono</th>
+                                <th className="text-left text-[#8696a0] px-3 py-2">Nombre</th>
+                                <th className="text-left text-[#8696a0] px-3 py-2">Estado</th>
+                                <th className="text-left text-[#8696a0] px-3 py-2">Enviado</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {recipients[campaign.id].map((r) => (
+                                <tr key={r.id} className="border-b border-[#2a3942]/40 last:border-0">
+                                  <td className="text-[#e9edef] px-3 py-1.5 font-mono">{r.contact?.phone ?? "—"}</td>
+                                  <td className="text-[#8696a0] px-3 py-1.5">{r.contact?.name ?? "—"}</td>
+                                  <td className="px-3 py-1.5">
+                                    {r.replied_at ? (
+                                      <span className="text-[#00a884]">Respondió</span>
+                                    ) : r.status === "sent" ? (
+                                      <span className="text-blue-400">Enviado</span>
+                                    ) : (
+                                      <span className="text-[#8696a0]">{r.status}</span>
+                                    )}
+                                  </td>
+                                  <td className="text-[#8696a0] px-3 py-1.5">
+                                    {r.sent_at ? new Date(r.sent_at).toLocaleString() : "—"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[#8696a0] italic">Sin destinatarios aún.</p>
+                    )}
                   </div>
                 )}
               </div>

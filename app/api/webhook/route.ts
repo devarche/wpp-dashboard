@@ -118,8 +118,8 @@ export async function POST(request: NextRequest) {
             );
 
           // 5. Update conversation summary
-          //    If this is a reply to a campaign, auto-unarchive so it appears in the inbox
-          const isReplyToCampaign =
+          //    Always unarchive on inbound reply — any archived conversation becomes active
+          const isArchivedCampaign =
             conversation.campaign_id != null && conversation.archived === true;
 
           await supabase
@@ -131,12 +131,12 @@ export async function POST(request: NextRequest) {
               ).toISOString(),
               unread_count: (conversation.unread_count ?? 0) + 1,
               updated_at: new Date().toISOString(),
-              ...(isReplyToCampaign ? { archived: false } : {}),
+              ...(conversation.archived ? { archived: false } : {}),
             })
             .eq("id", conversation.id);
 
-          // 6. Mark campaign recipient as replied
-          if (isReplyToCampaign) {
+          // 6. Mark campaign recipient as replied (if this was a campaign conversation)
+          if (isArchivedCampaign) {
             await supabase
               .from("campaign_recipients")
               .update({ replied_at: new Date().toISOString(), status: "replied" })

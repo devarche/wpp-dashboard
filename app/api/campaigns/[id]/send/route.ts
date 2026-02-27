@@ -41,10 +41,10 @@ export async function POST(
 
   const service = createServiceClient();
 
-  // Load campaign + template
+  // Load campaign + template (including components to extract body preview)
   const { data: campaign, error: campErr } = await service
     .from("campaigns")
-    .select("*, template:templates(name, language)")
+    .select("*, template:templates(name, language, components)")
     .eq("id", id)
     .single();
 
@@ -55,8 +55,11 @@ export async function POST(
     return NextResponse.json({ error: "Campaign already sent" }, { status: 400 });
   }
 
-  const templateName = (campaign.template as { name: string; language: string } | null)?.name;
-  const templateLang = (campaign.template as { name: string; language: string } | null)?.language ?? "es_AR";
+  const tmpl = campaign.template as { name: string; language: string; components?: { type: string; text?: string }[] } | null;
+  const templateName = tmpl?.name;
+  const templateLang = tmpl?.language ?? "es_AR";
+  // Extract body text for message preview
+  const templateBody = tmpl?.components?.find((c) => c.type === "BODY")?.text ?? null;
 
   if (!templateName) {
     return NextResponse.json({ error: "Template not found" }, { status: 400 });
@@ -161,7 +164,7 @@ export async function POST(
         wamid,
         direction: "outbound",
         type: "template",
-        content: { template: { name: templateName, language: templateLang } },
+        content: { template: { name: templateName, language: templateLang, body: templateBody } },
         status: "sent",
       });
 

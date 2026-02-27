@@ -124,11 +124,18 @@ function MessageContent({ message }: { message: Message }) {
   }
 
   if (message.type === "template") {
-    const tmpl = c.template as { name?: string } | undefined;
+    const tmpl = c.template as { name?: string; body?: string } | undefined;
     return (
-      <p className="text-[#e9edef] text-sm italic">
-        {tmpl?.name ? `[Template: ${tmpl.name}]` : "[Template]"}
-      </p>
+      <div className="space-y-1 min-w-[160px]">
+        {tmpl?.body && (
+          <p className="text-[#e9edef] text-sm whitespace-pre-wrap break-words leading-relaxed">
+            {tmpl.body}
+          </p>
+        )}
+        <p className="text-[#8696a0] text-xs italic">
+          Template: {tmpl?.name ?? "—"}
+        </p>
+      </div>
     );
   }
 
