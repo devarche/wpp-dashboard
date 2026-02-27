@@ -77,7 +77,11 @@ function extractAllTemplateVars(template: MetaTemplate): TemplateVarKey[] {
 
     if (type === "BUTTONS" && component.buttons) {
       component.buttons.forEach((btn, idx) => {
-        if (btn.type === "URL" && btn.url_type === "DYNAMIC") {
+        // Meta API does NOT return url_type; detect dynamic buttons by {{}} in url or presence of example values
+        const isDynamicUrl =
+          btn.type.toUpperCase() === "URL" &&
+          (btn.url?.includes("{{") || (btn.example && btn.example.length > 0));
+        if (isDynamicUrl) {
           vars.push({ label: `Botón URL "${btn.text}" {{1}}`, key: `button_${idx}_1`, componentType: "button", varNum: 1, buttonIndex: idx });
         }
       });
@@ -255,7 +259,8 @@ export default function CampaignsPage() {
 
   // ── Build recipients — produces the correct WhatsApp API components array ───
   function buildRecipients(campaign: Campaign, rows: ParsedRow[]) {
-    const tmpl = templates.find((t) => t.id === campaign.template_id);
+    // Match by name because campaign.template_id is a local UUID, not a Meta ID
+    const tmpl = templates.find((t) => t.name === campaign.template?.name);
     const varKeys = tmpl ? extractAllTemplateVars(tmpl) : [];
 
     const headerVars = varKeys.filter(v => v.componentType === "header").sort((a, b) => a.varNum - b.varNum);
@@ -323,7 +328,7 @@ export default function CampaignsPage() {
   // ── Derived state ───────────────────────────────────────────────────────────
   const selectedCampaign = campaigns.find((c) => c.id === sendCampaignId) ?? null;
   const activeCampaignTemplate = selectedCampaign
-    ? templates.find((t) => t.id === selectedCampaign.template_id)
+    ? templates.find((t) => t.name === selectedCampaign.template?.name)
     : null;
   const templateVars = activeCampaignTemplate ? extractAllTemplateVars(activeCampaignTemplate) : [];
   const effectiveSendCount = sendPartial ? Math.min(sendCount, csvRows.length) : csvRows.length;
