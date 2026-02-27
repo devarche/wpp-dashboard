@@ -289,11 +289,19 @@ export default function CampaignsPage() {
           });
         }
         for (const bv of buttonVars) {
+          const rawSuffix = row[columnMapping.variables[bv.key] ?? ""] ?? "";
+          // Normalize: decode first (in case already encoded) then re-encode.
+          // This prevents double-encoding while still encoding plain-text values.
+          let suffix = "";
+          if (rawSuffix) {
+            try { suffix = encodeURI(decodeURI(rawSuffix)); }
+            catch { suffix = encodeURI(rawSuffix); }
+          }
           components.push({
             type: "button",
             sub_type: "url",
             index: bv.buttonIndex ?? 0,
-            parameters: [{ type: "text", text: row[columnMapping.variables[bv.key] ?? ""] ?? "" }],
+            parameters: [{ type: "text", text: suffix }],
           });
         }
 
