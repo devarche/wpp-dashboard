@@ -82,17 +82,53 @@ export async function POST(
     if (!phone) { failed++; continue; }
 
     try {
-      // 1. Upsert contact
-      const { data: contact, error: contactErr } = await service
-        .from("contacts")
-        .upsert(
-          { phone, name: recipient.name ?? null },
-          { onConflict: "phone" }
-        )
-        .select()
-        .single();
+      // 1. Find or create contact — try exact match first, then suffix match
+      //    (handles CSVs with numbers missing the country code, e.g. 1167910548 vs 541167910548)
+      let contact: Record<string, unknown> | null = null;
 
-      if (contactErr || !contact) { failed++; continue; }
+      const { data: exactContact } = await service
+        .from("contacts")
+        .select("*")
+        .eq("phone", phone)
+        .maybeSingle();
+
+      if (exactContact) {
+        contact = exactContact;
+        // Update name if we have one and the contact doesn't
+        if (recipient.name && !exactContact.name) {
+          await service.from("contacts").update({ name: recipient.name }).eq("id", exactContact.id);
+          contact = { ...exactContact, name: recipient.name };
+        }
+      } else {
+        // Fallback: find a contact whose stored phone ends with this number
+        // (e.g., stored "541167910548" matched by CSV "1167910548")
+        const { data: suffixContact } = await service
+          .from("contacts")
+          .select("*")
+          .like("phone", `%${phone}`)
+          .maybeSingle();
+
+        if (suffixContact) {
+          contact = suffixContact;
+          if (recipient.name && !suffixContact.name) {
+            await service.from("contacts").update({ name: recipient.name }).eq("id", suffixContact.id);
+            contact = { ...suffixContact, name: recipient.name };
+          }
+        } else {
+          // Create new contact
+          const { data: newContact, error: newErr } = await service
+            .from("contacts")
+            .insert({ phone, name: recipient.name ?? null })
+            .select()
+            .single();
+          if (newErr || !newContact) { failed++; continue; }
+          contact = newContact;
+        }
+      }
+
+      if (!contact) { failed++; continue; }
+      // Use the stored phone number (may include country code) for the WhatsApp API call
+      const waPhone = (contact.phone as string) || phone;
 
       // 2. Find or create conversation
       let { data: conversation } = await service
@@ -147,10 +183,10 @@ export async function POST(
         .select("id")
         .single();
 
-      // 5. Send template via WhatsApp API
+      // 5. Send template via WhatsApp API (use stored phone which may include country code)
       const waRes = await sendTemplateMessage(
         phoneNumberId,
-        phone,
+        waPhone,
         templateName,
         templateLang,
         recipient.components
