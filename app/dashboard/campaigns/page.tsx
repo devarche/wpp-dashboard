@@ -248,10 +248,10 @@ export default function CampaignsPage() {
 
   // ── Derived state ───────────────────────────────────────────────────────────
   const selectedCampaign = campaigns.find((c) => c.id === sendCampaignId) ?? null;
-  const selectedTemplate = selectedCampaign
+  const activeCampaignTemplate = selectedCampaign
     ? templates.find((t) => t.id === selectedCampaign.template_id)
     : null;
-  const templateVars = selectedTemplate ? extractTemplateVariables(selectedTemplate) : [];
+  const templateVars = activeCampaignTemplate ? extractTemplateVariables(activeCampaignTemplate) : [];
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
