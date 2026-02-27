@@ -27,6 +27,7 @@ export function formatConversation(raw: RawConversation): Conversation {
     ...conversation,
     assignees: conversation.assignees ?? [],
     archived: conversation.archived ?? false,
+    campaign_id: conversation.campaign_id ?? null,
     tags,
   };
 }

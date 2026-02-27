@@ -25,6 +25,7 @@ export interface Conversation {
   status: "open" | "closed" | "pending";
   assignees: string[];
   archived: boolean;
+  campaign_id: string | null;
   tags: Tag[];
   created_at: string;
   updated_at: string;
@@ -76,10 +77,14 @@ export interface Campaign {
   id: string;
   name: string;
   template_id: string | null;
+  tag_id: string | null;
   status: "draft" | "running" | "paused" | "completed";
   sent_count: number;
   delivered_count: number;
   read_count: number;
+  replied_count: number;
   created_at: string;
   scheduled_at: string | null;
+  template?: { name: string; language: string } | null;
+  tag?: { name: string; color: string | null } | null;
 }

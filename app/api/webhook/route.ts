@@ -118,6 +118,10 @@ export async function POST(request: NextRequest) {
             );
 
           // 5. Update conversation summary
+          //    If this is a reply to a campaign, auto-unarchive so it appears in the inbox
+          const isReplyToCampaign =
+            conversation.campaign_id != null && conversation.archived === true;
+
           await supabase
             .from("conversations")
             .update({
@@ -127,8 +131,19 @@ export async function POST(request: NextRequest) {
               ).toISOString(),
               unread_count: (conversation.unread_count ?? 0) + 1,
               updated_at: new Date().toISOString(),
+              ...(isReplyToCampaign ? { archived: false } : {}),
             })
             .eq("id", conversation.id);
+
+          // 6. Mark campaign recipient as replied
+          if (isReplyToCampaign) {
+            await supabase
+              .from("campaign_recipients")
+              .update({ replied_at: new Date().toISOString(), status: "replied" })
+              .eq("campaign_id", conversation.campaign_id)
+              .eq("contact_id", contact.id)
+              .is("replied_at", null); // only first reply
+          }
         }
 
         // ── Delivery / read status updates ────────────────────────────────
