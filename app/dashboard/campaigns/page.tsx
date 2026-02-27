@@ -325,7 +325,7 @@ export default function CampaignsPage() {
   const activeCampaignTemplate = selectedCampaign
     ? templates.find((t) => t.id === selectedCampaign.template_id)
     : null;
-  const templateVars = activeCampaignTemplate ? extractTemplateVariables(activeCampaignTemplate) : [];
+  const templateVars = activeCampaignTemplate ? extractAllTemplateVars(activeCampaignTemplate) : [];
   const effectiveSendCount = sendPartial ? Math.min(sendCount, csvRows.length) : csvRows.length;
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -645,16 +645,16 @@ export default function CampaignsPage() {
                           Variables del template:
                         </p>
                         {templateVars.map((v) => (
-                          <div key={v} className="flex items-center gap-3 mt-2">
-                            <span className="text-[#e9edef] text-xs w-32 flex-shrink-0 font-mono bg-[#2a3942] rounded px-2 py-1 text-center">
-                              {v}
+                          <div key={v.key} className="flex items-center gap-3 mt-2">
+                            <span className="text-[#e9edef] text-xs w-40 flex-shrink-0 font-mono bg-[#2a3942] rounded px-2 py-1 text-center truncate" title={v.label}>
+                              {v.label}
                             </span>
                             <select
-                              value={columnMapping.variables[v] ?? ""}
+                              value={columnMapping.variables[v.key] ?? ""}
                               onChange={(e) =>
                                 setColumnMapping((m) => ({
                                   ...m,
-                                  variables: { ...m.variables, [v]: e.target.value },
+                                  variables: { ...m.variables, [v.key]: e.target.value },
                                 }))
                               }
                               className="flex-1 bg-[#2a3942] text-[#e9edef] rounded-lg px-3 py-1.5 text-xs outline-none"
@@ -761,8 +761,8 @@ export default function CampaignsPage() {
                               Teléfono
                             </th>
                             {templateVars.map((v) => (
-                              <th key={v} className="text-left text-[#8696a0] px-3 py-2 font-mono whitespace-nowrap">
-                                {v} → {columnMapping.variables[v] || "—"}
+                              <th key={v.key} className="text-left text-[#8696a0] px-3 py-2 font-mono whitespace-nowrap">
+                                {v.label} → {columnMapping.variables[v.key] || "—"}
                               </th>
                             ))}
                           </tr>
@@ -776,9 +776,9 @@ export default function CampaignsPage() {
                                 )}
                               </td>
                               {templateVars.map((v) => (
-                                <td key={v} className="text-[#e9edef] px-3 py-2 whitespace-nowrap">
-                                  {columnMapping.variables[v]
-                                    ? row[columnMapping.variables[v]]
+                                <td key={v.key} className="text-[#e9edef] px-3 py-2 whitespace-nowrap">
+                                  {columnMapping.variables[v.key]
+                                    ? row[columnMapping.variables[v.key]]
                                     : <span className="text-[#8696a0]">—</span>}
                                 </td>
                               ))}
