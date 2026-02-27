@@ -28,6 +28,7 @@ export async function POST(
   const { id } = await params;
   const body = await request.json();
   const recipients: Recipient[] = Array.isArray(body?.recipients) ? body.recipients : [];
+  const partial: boolean = body?.partial === true;
 
   if (recipients.length === 0) {
     return NextResponse.json({ error: "recipients array is empty" }, { status: 400 });
@@ -190,11 +191,12 @@ export async function POST(
   }
 
   // Update campaign counters + status
+  // Accumulate sent_count in case this is a follow-up partial send
   await service
     .from("campaigns")
     .update({
-      sent_count: sent,
-      status: "completed",
+      sent_count: (campaign.sent_count ?? 0) + sent,
+      status: partial ? "draft" : "completed",
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);

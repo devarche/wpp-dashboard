@@ -11,6 +11,7 @@ import {
   Plus,
   Send,
   Tag as TagIcon,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -24,7 +25,16 @@ interface ParsedRow {
 
 interface ColumnMapping {
   phoneCol: string;
-  variables: Record<string, string>; // "{{1}}" → CSV column name
+  variables: Record<string, string>; // varKey → CSV column name
+}
+
+// Per-component variable descriptor — each WhatsApp component type needs its own parameters block
+interface TemplateVarKey {
+  label: string;       // Human-readable: "Header {{1}}", "Cuerpo {{1}}", "Botón URL «Ver más» {{1}}"
+  key: string;         // Unique key used in ColumnMapping.variables: "header_1", "body_1", "button_0_1"
+  componentType: "header" | "body" | "button";
+  varNum: number;
+  buttonIndex?: number;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -42,14 +52,39 @@ function parseCSV(text: string): { headers: string[]; rows: ParsedRow[] } {
   return { headers, rows };
 }
 
-function extractTemplateVariables(template: MetaTemplate): string[] {
-  const vars = new Set<string>();
+// Extract variables per component so we can build the correct WhatsApp API components array
+function extractAllTemplateVars(template: MetaTemplate): TemplateVarKey[] {
+  const vars: TemplateVarKey[] = [];
+
   for (const component of template.components ?? []) {
-    const text = component.text ?? "";
-    const matches = text.matchAll(/\{\{(\d+)\}\}/g);
-    for (const match of matches) vars.add(`{{${match[1]}}}`);
+    const type = component.type.toUpperCase();
+
+    if (type === "HEADER" && component.format === "TEXT" && component.text) {
+      const nums = new Set<number>();
+      for (const m of component.text.matchAll(/\{\{(\d+)\}\}/g)) {
+        const n = parseInt(m[1]);
+        if (!nums.has(n)) { nums.add(n); vars.push({ label: `Header {{${n}}}`, key: `header_${n}`, componentType: "header", varNum: n }); }
+      }
+    }
+
+    if (type === "BODY" && component.text) {
+      const nums = new Set<number>();
+      for (const m of component.text.matchAll(/\{\{(\d+)\}\}/g)) {
+        const n = parseInt(m[1]);
+        if (!nums.has(n)) { nums.add(n); vars.push({ label: `Cuerpo {{${n}}}`, key: `body_${n}`, componentType: "body", varNum: n }); }
+      }
+    }
+
+    if (type === "BUTTONS" && component.buttons) {
+      component.buttons.forEach((btn, idx) => {
+        if (btn.type === "URL" && btn.url_type === "DYNAMIC") {
+          vars.push({ label: `Botón URL "${btn.text}" {{1}}`, key: `button_${idx}_1`, componentType: "button", varNum: 1, buttonIndex: idx });
+        }
+      });
+    }
   }
-  return [...vars].sort();
+
+  return vars;
 }
 
 function statusBadge(status: Campaign["status"]) {
@@ -97,6 +132,10 @@ export default function CampaignsPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<MetaTemplate | null>(null);
   const [creating, setCreating] = useState(false);
 
+  // Delete
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   // Send panel
   const [sendCampaignId, setSendCampaignId] = useState<string | null>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
@@ -105,6 +144,8 @@ export default function CampaignsPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<{ sent: number; failed: number } | null>(null);
+  const [sendPartial, setSendPartial] = useState(false);
+  const [sendCount, setSendCount] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchCampaigns = useCallback(async () => {
@@ -161,6 +202,20 @@ export default function CampaignsPage() {
     }
   };
 
+  // ── Delete campaign ─────────────────────────────────────────────────────────
+  const handleDelete = async (id: string) => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/campaigns/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setCampaigns((prev) => prev.filter((c) => c.id !== id));
+        setConfirmDeleteId(null);
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   // ── CSV upload & parse ──────────────────────────────────────────────────────
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -180,6 +235,8 @@ export default function CampaignsPage() {
       setColumnMapping({ phoneCol: autoPhone, variables: {} });
       setShowPreview(false);
       setSendResult(null);
+      setSendPartial(false);
+      setSendCount(rows.length);
     };
     reader.readAsText(file);
   };
@@ -191,33 +248,49 @@ export default function CampaignsPage() {
     setColumnMapping({ phoneCol: "", variables: {} });
     setShowPreview(false);
     setSendResult(null);
+    setSendPartial(false);
+    setSendCount(0);
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  // ── Build recipients from current mapping ───────────────────────────────────
-  function buildRecipients(campaign: Campaign) {
+  // ── Build recipients — produces the correct WhatsApp API components array ───
+  function buildRecipients(campaign: Campaign, rows: ParsedRow[]) {
     const tmpl = templates.find((t) => t.id === campaign.template_id);
-    const vars = tmpl ? extractTemplateVariables(tmpl) : [];
+    const varKeys = tmpl ? extractAllTemplateVars(tmpl) : [];
 
-    return csvRows
+    const headerVars = varKeys.filter(v => v.componentType === "header").sort((a, b) => a.varNum - b.varNum);
+    const bodyVars   = varKeys.filter(v => v.componentType === "body").sort((a, b) => a.varNum - b.varNum);
+    const buttonVars = varKeys.filter(v => v.componentType === "button");
+
+    return rows
       .map((row) => {
         const phone = (row[columnMapping.phoneCol] ?? "").replace(/\D/g, "");
         if (!phone) return null;
 
-        const components =
-          vars.length > 0
-            ? [
-                {
-                  type: "body",
-                  parameters: vars.map((v) => ({
-                    type: "text",
-                    text: row[columnMapping.variables[v] ?? ""] ?? "",
-                  })),
-                },
-              ]
-            : undefined;
+        const components: unknown[] = [];
 
-        return { phone, components };
+        if (headerVars.length > 0) {
+          components.push({
+            type: "header",
+            parameters: headerVars.map(v => ({ type: "text", text: row[columnMapping.variables[v.key] ?? ""] ?? "" })),
+          });
+        }
+        if (bodyVars.length > 0) {
+          components.push({
+            type: "body",
+            parameters: bodyVars.map(v => ({ type: "text", text: row[columnMapping.variables[v.key] ?? ""] ?? "" })),
+          });
+        }
+        for (const bv of buttonVars) {
+          components.push({
+            type: "button",
+            sub_type: "url",
+            index: String(bv.buttonIndex ?? 0),
+            parameters: [{ type: "text", text: row[columnMapping.variables[bv.key] ?? ""] ?? "" }],
+          });
+        }
+
+        return { phone, components: components.length > 0 ? components : undefined };
       })
       .filter(Boolean);
   }
@@ -228,13 +301,14 @@ export default function CampaignsPage() {
     setSending(true);
     setSendResult(null);
 
-    const recipients = buildRecipients(campaign);
+    const rowsToSend = sendPartial ? csvRows.slice(0, sendCount) : csvRows;
+    const recipients = buildRecipients(campaign, rowsToSend);
 
     try {
       const res = await fetch(`/api/campaigns/${campaign.id}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipients }),
+        body: JSON.stringify({ recipients, partial: sendPartial }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -252,6 +326,7 @@ export default function CampaignsPage() {
     ? templates.find((t) => t.id === selectedCampaign.template_id)
     : null;
   const templateVars = activeCampaignTemplate ? extractTemplateVariables(activeCampaignTemplate) : [];
+  const effectiveSendCount = sendPartial ? Math.min(sendCount, csvRows.length) : csvRows.length;
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
@@ -339,13 +414,41 @@ export default function CampaignsPage() {
                       </span>
                     )}
                     {campaign.status === "draft" && (
-                      <button
-                        onClick={() => openSendPanel(campaign.id)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00a884] text-white text-xs font-medium hover:bg-[#06cf9c] transition-colors"
-                      >
-                        <Send size={12} />
-                        Enviar
-                      </button>
+                      <>
+                        <button
+                          onClick={() => openSendPanel(campaign.id)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00a884] text-white text-xs font-medium hover:bg-[#06cf9c] transition-colors"
+                        >
+                          <Send size={12} />
+                          {campaign.sent_count > 0 ? "Continuar" : "Enviar"}
+                        </button>
+
+                        {confirmDeleteId === campaign.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleDelete(campaign.id)}
+                              disabled={deleting}
+                              className="text-[11px] px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 font-medium disabled:opacity-40"
+                            >
+                              {deleting ? "…" : "Eliminar"}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="text-[11px] px-2 py-1 text-[#8696a0] hover:text-[#e9edef]"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(campaign.id)}
+                            className="p-1.5 rounded hover:bg-red-500/10 text-[#8696a0] hover:text-red-400 transition-colors"
+                            title="Eliminar campaña"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -462,6 +565,18 @@ export default function CampaignsPage() {
 
             {/* Panel body */}
             <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+              {/* Already sent info */}
+              {selectedCampaign.sent_count > 0 && (
+                <div className="bg-blue-900/20 border border-blue-800/30 rounded-xl px-4 py-3">
+                  <p className="text-blue-400 text-sm font-medium">
+                    Ya enviados: {selectedCampaign.sent_count} mensajes
+                  </p>
+                  <p className="text-[#8696a0] text-xs mt-0.5">
+                    Subí un CSV con los contactos restantes para continuar.
+                  </p>
+                </div>
+              )}
+
               {/* Step 1 — Upload CSV */}
               <section>
                 <h3 className="text-[#e9edef] text-sm font-medium mb-2 flex items-center gap-2">
@@ -482,7 +597,7 @@ export default function CampaignsPage() {
                   )}
                   {csvHeaders.length > 0 && (
                     <p className="text-[#8696a0] text-xs mt-1">
-                      Columnas detectadas: {csvHeaders.join(", ")}
+                      Columnas: {csvHeaders.join(", ")}
                     </p>
                   )}
                 </div>
@@ -500,7 +615,7 @@ export default function CampaignsPage() {
                 <section>
                   <h3 className="text-[#e9edef] text-sm font-medium mb-3 flex items-center gap-2">
                     <span className="w-5 h-5 rounded-full bg-[#00a884] text-white text-[10px] flex items-center justify-center font-bold flex-shrink-0">2</span>
-                    Mapear columnas del CSV
+                    Mapear columnas
                   </h3>
 
                   <div className="bg-[#202c33] rounded-xl border border-[#2a3942] p-4 space-y-3">
@@ -525,35 +640,33 @@ export default function CampaignsPage() {
 
                     {/* Template variables */}
                     {templateVars.length > 0 ? (
-                      <>
-                        <div className="border-t border-[#2a3942] pt-3">
-                          <p className="text-[#8696a0] text-[11px] mb-2">
-                            Variables del template — mapeá cada una a una columna del CSV:
-                          </p>
-                          {templateVars.map((v) => (
-                            <div key={v} className="flex items-center gap-3 mt-2">
-                              <span className="text-[#e9edef] text-xs w-32 flex-shrink-0 font-mono bg-[#2a3942] rounded px-2 py-1 text-center">
-                                {v}
-                              </span>
-                              <select
-                                value={columnMapping.variables[v] ?? ""}
-                                onChange={(e) =>
-                                  setColumnMapping((m) => ({
-                                    ...m,
-                                    variables: { ...m.variables, [v]: e.target.value },
-                                  }))
-                                }
-                                className="flex-1 bg-[#2a3942] text-[#e9edef] rounded-lg px-3 py-1.5 text-xs outline-none"
-                              >
-                                <option value="">— elegí columna —</option>
-                                {csvHeaders.map((h) => (
-                                  <option key={h} value={h}>{h}</option>
-                                ))}
-                              </select>
-                            </div>
-                          ))}
-                        </div>
-                      </>
+                      <div className="border-t border-[#2a3942] pt-3">
+                        <p className="text-[#8696a0] text-[11px] mb-2">
+                          Variables del template:
+                        </p>
+                        {templateVars.map((v) => (
+                          <div key={v} className="flex items-center gap-3 mt-2">
+                            <span className="text-[#e9edef] text-xs w-32 flex-shrink-0 font-mono bg-[#2a3942] rounded px-2 py-1 text-center">
+                              {v}
+                            </span>
+                            <select
+                              value={columnMapping.variables[v] ?? ""}
+                              onChange={(e) =>
+                                setColumnMapping((m) => ({
+                                  ...m,
+                                  variables: { ...m.variables, [v]: e.target.value },
+                                }))
+                              }
+                              className="flex-1 bg-[#2a3942] text-[#e9edef] rounded-lg px-3 py-1.5 text-xs outline-none"
+                            >
+                              <option value="">— elegí columna —</option>
+                              {csvHeaders.map((h) => (
+                                <option key={h} value={h}>{h}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
                     ) : (
                       <p className="text-[#8696a0] text-xs pt-1">
                         Este template no tiene variables de texto.
@@ -563,12 +676,71 @@ export default function CampaignsPage() {
                 </section>
               )}
 
-              {/* Step 3 — Preview */}
+              {/* Step 3 — Cantidad a enviar */}
+              {csvRows.length > 0 && (
+                <section>
+                  <h3 className="text-[#e9edef] text-sm font-medium mb-3 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-[#00a884] text-white text-[10px] flex items-center justify-center font-bold flex-shrink-0">3</span>
+                    Cantidad a enviar
+                  </h3>
+
+                  <div className="bg-[#202c33] rounded-xl border border-[#2a3942] p-4 space-y-3">
+                    {/* Toggle */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setSendPartial(false); setSendCount(csvRows.length); }}
+                        className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
+                          !sendPartial
+                            ? "bg-[#00a884] text-white"
+                            : "bg-[#2a3942] text-[#8696a0] hover:text-[#e9edef]"
+                        }`}
+                      >
+                        Todos ({csvRows.length})
+                      </button>
+                      <button
+                        onClick={() => setSendPartial(true)}
+                        className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
+                          sendPartial
+                            ? "bg-[#00a884] text-white"
+                            : "bg-[#2a3942] text-[#8696a0] hover:text-[#e9edef]"
+                        }`}
+                      >
+                        Parcial
+                      </button>
+                    </div>
+
+                    {/* Partial count input */}
+                    {sendPartial && (
+                      <>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[#8696a0] text-xs">Enviar primeros</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={csvRows.length}
+                            value={sendCount}
+                            onChange={(e) =>
+                              setSendCount(Math.min(Math.max(1, parseInt(e.target.value) || 1), csvRows.length))
+                            }
+                            className="w-24 bg-[#2a3942] text-[#e9edef] rounded-lg px-3 py-1.5 text-sm outline-none text-center"
+                          />
+                          <span className="text-[#8696a0] text-xs">de {csvRows.length}</span>
+                        </div>
+                        <p className="text-[#8696a0] text-[11px]">
+                          La campaña quedará en Borrador. Próximo envío: subí el CSV con las filas {effectiveSendCount + 1} en adelante.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {/* Step 4 — Preview */}
               {csvRows.length > 0 && columnMapping.phoneCol && (
                 <section>
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-[#e9edef] text-sm font-medium flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-full bg-[#00a884] text-white text-[10px] flex items-center justify-center font-bold flex-shrink-0">3</span>
+                      <span className="w-5 h-5 rounded-full bg-[#00a884] text-white text-[10px] flex items-center justify-center font-bold flex-shrink-0">4</span>
                       Preview
                     </h3>
                     <button
@@ -596,7 +768,7 @@ export default function CampaignsPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {csvRows.slice(0, 5).map((row, i) => (
+                          {(sendPartial ? csvRows.slice(0, Math.min(effectiveSendCount, 5)) : csvRows.slice(0, 5)).map((row, i) => (
                             <tr key={i} className="border-b border-[#2a3942]/50 last:border-0">
                               <td className="text-[#e9edef] px-3 py-2 whitespace-nowrap">
                                 {row[columnMapping.phoneCol] || (
@@ -614,9 +786,9 @@ export default function CampaignsPage() {
                           ))}
                         </tbody>
                       </table>
-                      {csvRows.length > 5 && (
+                      {effectiveSendCount > 5 && (
                         <p className="text-[#8696a0] text-[11px] px-3 py-2">
-                          + {csvRows.length - 5} filas más
+                          + {effectiveSendCount - 5} filas más
                         </p>
                       )}
                     </div>
@@ -628,7 +800,7 @@ export default function CampaignsPage() {
               {sendResult && (
                 <div className="bg-[#00a884]/10 border border-[#00a884]/30 rounded-xl px-4 py-3">
                   <p className="text-[#00a884] text-sm font-medium">
-                    ✓ Campaña enviada — {sendResult.sent} mensajes enviados
+                    ✓ {sendResult.sent} mensajes enviados
                     {sendResult.failed > 0 && `, ${sendResult.failed} fallidos`}
                   </p>
                   <p className="text-[#8696a0] text-xs mt-1">
@@ -642,7 +814,7 @@ export default function CampaignsPage() {
             <div className="px-5 py-4 border-t border-[#2a3942] flex-shrink-0">
               {sending ? (
                 <div className="w-full py-2.5 rounded-lg bg-[#00a884]/20 text-[#00a884] text-sm text-center animate-pulse">
-                  Enviando {csvRows.length} mensajes… esto puede tardar unos minutos
+                  Enviando {effectiveSendCount} mensajes… esto puede tardar unos minutos
                 </div>
               ) : sendResult ? (
                 <button
@@ -658,7 +830,7 @@ export default function CampaignsPage() {
                   className="w-full py-2.5 rounded-lg bg-[#00a884] text-white text-sm font-medium disabled:opacity-40 hover:bg-[#06cf9c] transition-colors flex items-center justify-center gap-2"
                 >
                   <Send size={15} />
-                  Enviar a {csvRows.length} contactos
+                  Enviar a {effectiveSendCount} contactos
                 </button>
               )}
             </div>
