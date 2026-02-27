@@ -77,10 +77,12 @@ function extractAllTemplateVars(template: MetaTemplate): TemplateVarKey[] {
 
     if (type === "BUTTONS" && component.buttons) {
       component.buttons.forEach((btn, idx) => {
-        // Meta API does NOT return url_type; detect dynamic buttons by {{}} in url or presence of example values
+        // Same detection as SendTemplateModal: url_type DYNAMIC, OR has example array, OR URL contains {{
         const isDynamicUrl =
-          btn.type.toUpperCase() === "URL" &&
-          (btn.url?.includes("{{") || (btn.example && btn.example.length > 0));
+          btn.type === "URL" &&
+          (btn.url_type === "DYNAMIC" ||
+            Array.isArray(btn.example) ||
+            (btn.url ?? "").includes("{{"));
         if (isDynamicUrl) {
           vars.push({ label: `Botón URL "${btn.text}" {{1}}`, key: `button_${idx}_1`, componentType: "button", varNum: 1, buttonIndex: idx });
         }
@@ -290,7 +292,7 @@ export default function CampaignsPage() {
           components.push({
             type: "button",
             sub_type: "url",
-            index: String(bv.buttonIndex ?? 0),
+            index: bv.buttonIndex ?? 0,
             parameters: [{ type: "text", text: row[columnMapping.variables[bv.key] ?? ""] ?? "" }],
           });
         }
