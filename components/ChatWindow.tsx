@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MessageBubble from "./MessageBubble";
-import { Archive, ArchiveRestore, MessageSquare, Send, Tag as TagIcon, Users, X } from "lucide-react";
+import { Archive, ArchiveRestore, Bold, Italic, MessageSquare, Send, Strikethrough, Tag as TagIcon, Users, X } from "lucide-react";
 import type { Conversation, Message, Tag } from "@/types";
 
 interface AuthUser {
@@ -36,6 +36,7 @@ export default function ChatWindow({ conversation, allTags, onUpdate }: Props) {
   const [showAssignees, setShowAssignees] = useState(false);
   const [showTags, setShowTags] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     createClient()
@@ -187,6 +188,7 @@ export default function ChatWindow({ conversation, allTags, onUpdate }: Props) {
     setMessages((prev) => [...prev, optimistic]);
     onUpdate({ ...conversation, last_message: msg, last_message_at: now });
     setText("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
     setSending(true);
 
     try {
@@ -214,6 +216,27 @@ export default function ChatWindow({ conversation, allTags, onUpdate }: Props) {
     } finally {
       setSending(false);
     }
+  };
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setText(e.target.value);
+    const ta = e.target;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
+  };
+
+  const insertFormat = (prefix: string, suffix: string) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selected = text.slice(start, end);
+    const newText = text.slice(0, start) + prefix + selected + suffix + text.slice(end);
+    setText(newText);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + prefix.length, end + prefix.length);
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -411,22 +434,51 @@ export default function ChatWindow({ conversation, allTags, onUpdate }: Props) {
       </div>
 
       {/* Input */}
-      <div className="h-16 bg-[#202c33] border-t border-[#2a3942] flex items-center px-4 gap-3 flex-shrink-0">
-        <input
-          type="text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Escribí un mensaje"
-          className="flex-1 bg-[#2a3942] text-[#e9edef] placeholder-[#8696a0] rounded-lg px-4 py-2 text-sm outline-none"
-        />
-        <button
-          onClick={handleSend}
-          disabled={sending || !text.trim()}
-          className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white transition-colors hover:bg-[#06cf9c] disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
-        >
-          <Send size={17} />
-        </button>
+      <div className="bg-[#202c33] border-t border-[#2a3942] flex-shrink-0">
+        {/* Formatting toolbar */}
+        <div className="flex items-center gap-0.5 px-4 pt-2">
+          <button
+            onMouseDown={(e) => { e.preventDefault(); insertFormat("*", "*"); }}
+            title="Negrita (*texto*)"
+            className="w-7 h-7 flex items-center justify-center rounded text-[#8696a0] hover:text-[#e9edef] hover:bg-[#2a3942] transition-colors"
+          >
+            <Bold size={14} />
+          </button>
+          <button
+            onMouseDown={(e) => { e.preventDefault(); insertFormat("_", "_"); }}
+            title="Cursiva (_texto_)"
+            className="w-7 h-7 flex items-center justify-center rounded text-[#8696a0] hover:text-[#e9edef] hover:bg-[#2a3942] transition-colors"
+          >
+            <Italic size={14} />
+          </button>
+          <button
+            onMouseDown={(e) => { e.preventDefault(); insertFormat("~", "~"); }}
+            title="Tachado (~texto~)"
+            className="w-7 h-7 flex items-center justify-center rounded text-[#8696a0] hover:text-[#e9edef] hover:bg-[#2a3942] transition-colors"
+          >
+            <Strikethrough size={14} />
+          </button>
+          <span className="ml-auto text-[#8696a0] text-[10px]">Shift+Enter para nueva línea</span>
+        </div>
+        {/* Text + send */}
+        <div className="flex items-end px-4 py-2 gap-3">
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={handleTextChange}
+            onKeyDown={handleKeyDown}
+            placeholder="Escribí un mensaje"
+            rows={1}
+            className="flex-1 bg-[#2a3942] text-[#e9edef] placeholder-[#8696a0] rounded-lg px-4 py-2 text-sm outline-none resize-none overflow-hidden leading-relaxed"
+          />
+          <button
+            onClick={handleSend}
+            disabled={sending || !text.trim()}
+            className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white transition-colors hover:bg-[#06cf9c] disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 mb-0.5"
+          >
+            <Send size={17} />
+          </button>
+        </div>
       </div>
     </div>
   );
