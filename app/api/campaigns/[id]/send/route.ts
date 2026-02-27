@@ -9,6 +9,11 @@ interface Recipient {
   components?: unknown[];
 }
 
+interface FailedRecipient {
+  phone: string;
+  error: string;
+}
+
 const SEND_DELAY_MS = 150; // ~6 msgs/sec — well within WhatsApp limits
 
 function delay(ms: number) {
@@ -67,6 +72,7 @@ export async function POST(
 
   let sent = 0;
   let failed = 0;
+  const failures: FailedRecipient[] = [];
 
   for (const recipient of recipients) {
     const phone = recipient.phone.replace(/\D/g, ""); // strip non-digits
@@ -184,6 +190,19 @@ export async function POST(
         await service.from("contacts").update({ opted_out: true }).eq("phone", phone);
       }
       failed++;
+      // Extract a human-readable error message
+      let errMsg = "Error desconocido";
+      if (err instanceof WhatsAppApiError) {
+        try {
+          const body = JSON.parse(err.message);
+          errMsg = body?.error?.message ?? err.message;
+        } catch {
+          errMsg = err.message;
+        }
+      } else if (err instanceof Error) {
+        errMsg = err.message;
+      }
+      failures.push({ phone, error: errMsg });
       console.error(`[campaign/send] failed for ${phone}:`, err);
     }
 
@@ -201,5 +220,5 @@ export async function POST(
     })
     .eq("id", id);
 
-  return NextResponse.json({ ok: true, sent, failed });
+  return NextResponse.json({ ok: true, sent, failed, failures });
 }

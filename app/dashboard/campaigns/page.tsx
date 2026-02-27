@@ -149,7 +149,7 @@ export default function CampaignsPage() {
   const [columnMapping, setColumnMapping] = useState<ColumnMapping>({ phoneCol: "", variables: {} });
   const [showPreview, setShowPreview] = useState(false);
   const [sending, setSending] = useState(false);
-  const [sendResult, setSendResult] = useState<{ sent: number; failed: number } | null>(null);
+  const [sendResult, setSendResult] = useState<{ sent: number; failed: number; failures?: { phone: string; error: string }[] } | null>(null);
   const [sendPartial, setSendPartial] = useState(false);
   const [sendCount, setSendCount] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -319,7 +319,7 @@ export default function CampaignsPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        setSendResult({ sent: data.sent, failed: data.failed });
+        setSendResult({ sent: data.sent, failed: data.failed, failures: data.failures });
         await fetchCampaigns();
       }
     } finally {
@@ -805,14 +805,32 @@ export default function CampaignsPage() {
 
               {/* Result */}
               {sendResult && (
-                <div className="bg-[#00a884]/10 border border-[#00a884]/30 rounded-xl px-4 py-3">
-                  <p className="text-[#00a884] text-sm font-medium">
-                    ✓ {sendResult.sent} mensajes enviados
-                    {sendResult.failed > 0 && `, ${sendResult.failed} fallidos`}
-                  </p>
-                  <p className="text-[#8696a0] text-xs mt-1">
-                    Las conversaciones aparecerán en Archivados → filtro por tag &quot;{selectedCampaign.name}&quot;. Cuando un contacto responda, la conversación volverá a Activos automáticamente.
-                  </p>
+                <div className="space-y-2">
+                  <div className="bg-[#00a884]/10 border border-[#00a884]/30 rounded-xl px-4 py-3">
+                    <p className="text-[#00a884] text-sm font-medium">
+                      ✓ {sendResult.sent} mensajes enviados
+                      {sendResult.failed > 0 && (
+                        <span className="text-red-400 ml-1">· {sendResult.failed} fallidos</span>
+                      )}
+                    </p>
+                    <p className="text-[#8696a0] text-xs mt-1">
+                      Las conversaciones aparecerán en Archivados → filtro por tag &quot;{selectedCampaign.name}&quot;. Cuando un contacto responda, la conversación volverá a Activos automáticamente.
+                    </p>
+                  </div>
+                  {sendResult.failures && sendResult.failures.length > 0 && (
+                    <div className="bg-red-900/20 border border-red-800/30 rounded-xl px-4 py-3">
+                      <p className="text-red-400 text-xs font-medium mb-2">Errores:</p>
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                        {sendResult.failures.map((f, i) => (
+                          <div key={i} className="text-xs">
+                            <span className="text-[#e9edef] font-mono">{f.phone}</span>
+                            <span className="text-[#8696a0] mx-1">—</span>
+                            <span className="text-red-300">{f.error}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
