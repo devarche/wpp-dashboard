@@ -94,7 +94,7 @@ export default function CampaignsPage() {
   // Create modal
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newTemplateId, setNewTemplateId] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState<MetaTemplate | null>(null);
   const [creating, setCreating] = useState(false);
 
   // Send panel
@@ -129,20 +129,33 @@ export default function CampaignsPage() {
 
   // ── Create campaign ─────────────────────────────────────────────────────────
   const handleCreate = async () => {
-    if (!newName.trim() || !newTemplateId || creating) return;
+    if (!newName.trim() || !selectedTemplate || creating) return;
     setCreating(true);
     try {
       const res = await fetch("/api/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim(), template_id: newTemplateId }),
+        body: JSON.stringify({
+          name: newName.trim(),
+          template: {
+            meta_id: selectedTemplate.id,
+            name: selectedTemplate.name,
+            language: selectedTemplate.language,
+            category: selectedTemplate.category,
+            components: selectedTemplate.components,
+          },
+        }),
       });
-      if (!res.ok) throw new Error("failed");
+      if (!res.ok) {
+        const err = await res.json();
+        console.error("Create campaign failed:", err);
+        return;
+      }
       const data = await res.json();
       setCampaigns((prev) => [data.campaign as Campaign, ...prev]);
       setShowCreate(false);
       setNewName("");
-      setNewTemplateId("");
+      setSelectedTemplate(null);
     } finally {
       setCreating(false);
     }
@@ -364,7 +377,7 @@ export default function CampaignsPage() {
       {showCreate && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => setShowCreate(false)}
+          onClick={() => { setShowCreate(false); setSelectedTemplate(null); setNewName(""); }}
         >
           <div
             className="bg-[#202c33] rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 border border-[#2a3942]"
@@ -393,8 +406,11 @@ export default function CampaignsPage() {
               <div>
                 <label className="text-[#8696a0] text-xs block mb-1">Template</label>
                 <select
-                  value={newTemplateId}
-                  onChange={(e) => setNewTemplateId(e.target.value)}
+                  value={selectedTemplate?.id ?? ""}
+                  onChange={(e) => {
+                    const t = templates.find((t) => t.id === e.target.value) ?? null;
+                    setSelectedTemplate(t);
+                  }}
                   className="w-full bg-[#2a3942] text-[#e9edef] rounded-lg px-3 py-2 text-sm outline-none"
                 >
                   <option value="">— Seleccioná un template —</option>
@@ -416,7 +432,7 @@ export default function CampaignsPage() {
               </button>
               <button
                 onClick={handleCreate}
-                disabled={creating || !newName.trim() || !newTemplateId}
+                disabled={creating || !newName.trim() || !selectedTemplate}
                 className="px-4 py-2 rounded-lg bg-[#00a884] text-white text-sm font-medium disabled:opacity-40 hover:bg-[#06cf9c] transition-colors"
               >
                 {creating ? "Creando…" : "Crear"}

@@ -47,6 +47,7 @@ export async function GET() {
 }
 
 // POST /api/campaigns — create a draft campaign
+// Body: { name, template: { meta_id, name, language, category, components } }
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -54,14 +55,41 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   const name = typeof body?.name === "string" ? body.name.trim() : "";
-  const templateId = typeof body?.template_id === "string" ? body.template_id : null;
+  const tmpl = body?.template as {
+    meta_id?: string;
+    name?: string;
+    language?: string;
+    category?: string;
+    components?: unknown;
+  } | undefined;
 
   if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 });
-  if (!templateId) return NextResponse.json({ error: "template_id is required" }, { status: 400 });
+  if (!tmpl?.name) return NextResponse.json({ error: "template.name is required" }, { status: 400 });
 
   const service = createServiceClient();
 
-  // Auto-create a campaign tag
+  // 1. Upsert the template into the local templates table to get a proper UUID
+  const { data: localTemplate, error: tmplErr } = await service
+    .from("templates")
+    .upsert(
+      {
+        name: tmpl.name,
+        language: tmpl.language ?? "es_AR",
+        category: tmpl.category ?? null,
+        components: tmpl.components ?? [],
+        status: "APPROVED",
+        meta_template_id: tmpl.meta_id ?? null,
+      },
+      { onConflict: "name" }
+    )
+    .select("id")
+    .single();
+
+  if (tmplErr || !localTemplate) {
+    return NextResponse.json({ error: tmplErr?.message ?? "Failed to sync template" }, { status: 500 });
+  }
+
+  // 2. Auto-create a campaign tag with a random color
   const color = randomColor();
   const normalized = normalizeTagKey(name);
   const { data: tag, error: tagErr } = await service
@@ -77,12 +105,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: tagErr?.message ?? "Failed to create tag" }, { status: 500 });
   }
 
-  // Create the campaign linked to the tag
+  // 3. Create the campaign with the local template UUID
   const { data: campaign, error: campErr } = await service
     .from("campaigns")
     .insert({
       name,
-      template_id: templateId,
+      template_id: localTemplate.id, // real UUID now
       tag_id: tag.id,
       status: "draft",
       sent_count: 0,
