@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { findOrCreateContact } from "@/lib/contacts";
 
 const OPT_OUT_KEYWORDS = new Set([
   "stop", "stopall", "unsubscribe", "cancel", "end", "quit",
@@ -50,28 +51,28 @@ export async function POST(request: NextRequest) {
             (c: { wa_id: string }) => c.wa_id === waMessage.from
           );
 
-          // 1. Upsert contact — detect opt-out/opt-in from text messages
+          // 1. Find or create contact (deduplicates by phone, handles country code variations)
           const optChange =
             waMessage.type === "text"
               ? detectOptChange(waMessage.text?.body ?? "")
               : null;
 
-          const contactUpdate: Record<string, unknown> = {
-            phone: waMessage.from,
-            name: contactInfo?.profile?.name ?? null,
-          };
-          if (optChange === "opt_out") contactUpdate.opted_out = true;
-          if (optChange === "opt_in") contactUpdate.opted_out = false;
+          const contact = await findOrCreateContact(
+            supabase,
+            waMessage.from,
+            contactInfo?.profile?.name ?? null
+          );
 
-          const { data: contact, error: contactErr } = await supabase
-            .from("contacts")
-            .upsert(contactUpdate, { onConflict: "phone" })
-            .select()
-            .single();
-
-          if (contactErr || !contact) {
-            console.error("[webhook] contact upsert:", contactErr);
+          if (!contact) {
+            console.error("[webhook] contact lookup failed for", waMessage.from);
             continue;
+          }
+
+          // Apply opt-in / opt-out if detected
+          if (optChange === "opt_out") {
+            await supabase.from("contacts").update({ opted_out: true }).eq("id", contact.id);
+          } else if (optChange === "opt_in") {
+            await supabase.from("contacts").update({ opted_out: false }).eq("id", contact.id);
           }
 
           // 2. Find or create conversation

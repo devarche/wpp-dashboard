@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { sendTemplateMessage, WhatsAppApiError } from "@/lib/whatsapp";
+import { findOrCreateContact } from "@/lib/contacts";
 
 interface Recipient {
   phone: string;
@@ -82,50 +83,8 @@ export async function POST(
     if (!phone) { failed++; continue; }
 
     try {
-      // 1. Find or create contact — try exact match first, then suffix match
-      //    (handles CSVs with numbers missing the country code, e.g. 1167910548 vs 541167910548)
-      let contact: Record<string, unknown> | null = null;
-
-      const { data: exactContact } = await service
-        .from("contacts")
-        .select("*")
-        .eq("phone", phone)
-        .maybeSingle();
-
-      if (exactContact) {
-        contact = exactContact;
-        // Update name if we have one and the contact doesn't
-        if (recipient.name && !exactContact.name) {
-          await service.from("contacts").update({ name: recipient.name }).eq("id", exactContact.id);
-          contact = { ...exactContact, name: recipient.name };
-        }
-      } else {
-        // Fallback: find a contact whose stored phone ends with this number
-        // (e.g., stored "541167910548" matched by CSV "1167910548")
-        const { data: suffixContact } = await service
-          .from("contacts")
-          .select("*")
-          .like("phone", `%${phone}`)
-          .maybeSingle();
-
-        if (suffixContact) {
-          contact = suffixContact;
-          if (recipient.name && !suffixContact.name) {
-            await service.from("contacts").update({ name: recipient.name }).eq("id", suffixContact.id);
-            contact = { ...suffixContact, name: recipient.name };
-          }
-        } else {
-          // Create new contact
-          const { data: newContact, error: newErr } = await service
-            .from("contacts")
-            .insert({ phone, name: recipient.name ?? null })
-            .select()
-            .single();
-          if (newErr || !newContact) { failed++; continue; }
-          contact = newContact;
-        }
-      }
-
+      // 1. Find or create contact (deduplicates by phone suffix/prefix matching)
+      const contact = await findOrCreateContact(service, phone, recipient.name ?? null);
       if (!contact) { failed++; continue; }
       // Use the stored phone number (may include country code) for the WhatsApp API call
       const waPhone = (contact.phone as string) || phone;

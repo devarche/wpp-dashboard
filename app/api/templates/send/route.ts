@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { sendTemplateMessage, WhatsAppApiError } from "@/lib/whatsapp";
+import { findOrCreateContact } from "@/lib/contacts";
 
 export async function POST(request: NextRequest) {
   let to = "";
@@ -39,11 +40,7 @@ export async function POST(request: NextRequest) {
     // Persist to DB (upsert contact → find/create conversation → insert message)
     const service = createServiceClient();
 
-    const { data: contact } = await service
-      .from("contacts")
-      .upsert({ phone: to }, { onConflict: "phone" })
-      .select()
-      .single();
+    const contact = await findOrCreateContact(service, to);
 
     if (contact) {
       let { data: conversation } = await service
