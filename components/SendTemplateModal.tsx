@@ -92,12 +92,14 @@ export default function SendTemplateModal({ template, onClose }: Props) {
     [buttonsComp]
   );
 
-  const hasVars = headerVarCount > 0 || bodyVarCount > 0 || dynamicButtons.length > 0;
+  const mediaHeaderFormat = headerComp?.format && headerComp.format !== "TEXT" ? headerComp.format : null;
+  const hasVars = headerVarCount > 0 || bodyVarCount > 0 || dynamicButtons.length > 0 || !!mediaHeaderFormat;
 
   // State: arrays indexed 0..N-1
   const [headerVals, setHeaderVals] = useState<string[]>([]);
   const [bodyVals, setBodyVals] = useState<string[]>([]);
   const [buttonVals, setButtonVals] = useState<Record<number, string>>({});
+  const [mediaHeaderUrl, setMediaHeaderUrl] = useState("");
 
   // Live preview
   const bodyPreview =
@@ -121,6 +123,18 @@ export default function SendTemplateModal({ template, onClose }: Props) {
         type: "header",
         parameters: headerVarNames.map((varName, i) => makeParam(varName, headerVals[i] ?? "")),
       });
+    } else if (mediaHeaderFormat) {
+      const url = mediaHeaderUrl.trim();
+      const handle = headerComp?.example?.header_handle?.[0];
+      const paramType = mediaHeaderFormat.toLowerCase();
+      const mediaParam = url
+        ? { type: paramType, [paramType]: { link: url } }
+        : handle
+        ? { type: paramType, [paramType]: { id: handle } }
+        : null;
+      if (mediaParam) {
+        comps.push({ type: "header", parameters: [mediaParam] });
+      }
     }
 
     if (bodyVarCount > 0) {
@@ -236,6 +250,22 @@ export default function SendTemplateModal({ template, onClose }: Props) {
               />
               <p className="text-[#8696a0] text-xs mt-1">Digits only, no + or spaces</p>
             </div>
+
+            {/* Media header URL */}
+            {mediaHeaderFormat && (
+              <div className="mb-4">
+                <p className="text-[#8696a0] text-xs mb-2 uppercase tracking-wide">
+                  Header {mediaHeaderFormat === "IMAGE" ? "imagen" : mediaHeaderFormat === "VIDEO" ? "video" : "documento"}
+                </p>
+                <input
+                  type="url"
+                  value={mediaHeaderUrl}
+                  onChange={(e) => setMediaHeaderUrl(e.target.value)}
+                  placeholder={`URL pública de la ${mediaHeaderFormat === "IMAGE" ? "imagen" : "media"} (https://...)`}
+                  className="w-full bg-[#2a3942] text-[#e9edef] placeholder-[#8696a0] rounded-lg px-3 py-2 outline-none focus:ring-2 ring-[#00a884] text-sm"
+                />
+              </div>
+            )}
 
             {/* Header vars */}
             {headerVarCount > 0 && (

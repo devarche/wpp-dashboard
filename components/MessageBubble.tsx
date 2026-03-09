@@ -123,10 +123,32 @@ function MessageContent({ message }: { message: Message }) {
     );
   }
 
+  if (message.type === "sticker") {
+    const id = getMediaId(c, "sticker");
+    return id ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={mediaUrl(id)}
+        alt="Sticker"
+        className="w-28 h-28 object-contain"
+      />
+    ) : (
+      <p className="text-[#8696a0] text-sm">🎭 Sticker</p>
+    );
+  }
+
   if (message.type === "template") {
-    const tmpl = c.template as { name?: string; body?: string } | undefined;
+    const tmpl = c.template as { name?: string; body?: string; imageUrl?: string } | undefined;
     return (
       <div className="space-y-1 min-w-[160px]">
+        {tmpl?.imageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={tmpl.imageUrl}
+            alt="Template image"
+            className="rounded-lg max-w-full max-h-48 object-cover -mx-1"
+          />
+        )}
         {tmpl?.body && (
           <p className="text-[#e9edef] text-sm whitespace-pre-wrap break-words leading-relaxed">
             {tmpl.body}
@@ -153,7 +175,9 @@ export default function MessageBubble({ message }: Props) {
         className={`max-w-[65%] rounded-xl px-3 py-2 shadow-sm transition-opacity ${
           message.status === "sending" ? "opacity-60" : "opacity-100"
         } ${
-          isOut
+          message.type === "sticker"
+            ? "bg-transparent shadow-none px-0 py-0"
+            : isOut
             ? message.status === "failed" ? "bg-red-900/60 rounded-tr-none" : "bg-[#005c4b] rounded-tr-none"
             : "bg-[#202c33] rounded-tl-none"
         }`}

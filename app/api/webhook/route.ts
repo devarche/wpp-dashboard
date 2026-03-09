@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
           else if (t === "video") preview = "[Video]";
           else if (t === "document")
             preview = `[Document: ${waMessage.document?.filename ?? "file"}]`;
+          else if (t === "sticker") preview = "🎭 Sticker";
           else preview = `[${t}]`;
 
           // 4. Upsert message (idempotent — Meta can send duplicates)

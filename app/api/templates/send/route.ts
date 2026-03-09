@@ -69,12 +69,17 @@ export async function POST(request: NextRequest) {
         const templateBody = tmplComponents?.find((c) => c.type === "BODY")?.text ?? null;
 
         const preview = `[Template: ${templateName}]`;
+        // Extract header media URL from components if present
+        const comps = components as { type: string; parameters?: { type: string; image?: { link?: string }; video?: { link?: string }; document?: { link?: string } }[] }[] | undefined;
+        const headerParams = comps?.find((c) => c.type === "header")?.parameters?.[0];
+        const headerMediaUrl = headerParams?.image?.link ?? headerParams?.video?.link ?? headerParams?.document?.link ?? null;
+
         await service.from("messages").insert({
           conversation_id: conversation.id,
           wamid,
           direction: "outbound",
           type: "template",
-          content: { template: { name: templateName, language, body: templateBody } },
+          content: { template: { name: templateName, language, body: templateBody, imageUrl: headerMediaUrl } },
           status: "sent",
         });
         await service

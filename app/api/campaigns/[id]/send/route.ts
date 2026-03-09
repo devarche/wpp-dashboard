@@ -154,12 +154,17 @@ export async function POST(
       const now = new Date().toISOString();
 
       // 6. Insert outbound message record
+      // Extract header media URL from components (if template has IMAGE/VIDEO/DOCUMENT header)
+      const comps = recipient.components as { type: string; parameters?: { type: string; image?: { link?: string; id?: string }; video?: { link?: string; id?: string }; document?: { link?: string; id?: string } }[] }[] | undefined;
+      const headerParams = comps?.find(c => c.type === "header")?.parameters?.[0];
+      const headerMediaUrl = headerParams?.image?.link ?? headerParams?.video?.link ?? headerParams?.document?.link ?? null;
+
       await service.from("messages").insert({
         conversation_id: conversation.id,
         wamid,
         direction: "outbound",
         type: "template",
-        content: { template: { name: templateName, language: templateLang, body: templateBody } },
+        content: { template: { name: templateName, language: templateLang, body: templateBody, imageUrl: headerMediaUrl } },
         status: "sent",
       });
 
