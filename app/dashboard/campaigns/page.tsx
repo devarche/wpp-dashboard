@@ -341,6 +341,20 @@ export default function CampaignsPage() {
           if (params.every(p => p.text)) {
             components.push({ type: "header", parameters: params });
           }
+        } else if (tmpl) {
+          // Handle media headers (IMAGE / VIDEO / DOCUMENT) — send example handle as static param
+          const headerComp = tmpl.components.find(c => c.type.toUpperCase() === "HEADER");
+          const fmt = headerComp?.format?.toUpperCase();
+          if (fmt === "IMAGE" || fmt === "VIDEO" || fmt === "DOCUMENT") {
+            const handle = headerComp?.example?.header_handle?.[0];
+            if (handle) {
+              const paramType = fmt.toLowerCase();
+              components.push({
+                type: "header",
+                parameters: [{ type: paramType, [paramType]: { id: handle } }],
+              });
+            }
+          }
         }
         if (bodyVars.length > 0) {
           const params = bodyVars.map(v => {
@@ -497,24 +511,21 @@ export default function CampaignsPage() {
                       </span>
                     )}
                     {campaign.status === "draft" && (
-                      <>
-                        <button
-                          onClick={() => openSendPanel(campaign.id)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00a884] text-white text-xs font-medium hover:bg-[#06cf9c] transition-colors"
-                        >
-                          <Send size={12} />
-                          {campaign.sent_count > 0 ? "Continuar" : "Enviar"}
-                        </button>
-
-                        <button
-                          onClick={() => { setConfirmDeleteId(campaign.id); setDeletePassword(""); setDeletePasswordError(null); }}
-                          className="p-1.5 rounded hover:bg-red-500/10 text-[#8696a0] hover:text-red-400 transition-colors"
-                          title="Eliminar campaña"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </>
+                      <button
+                        onClick={() => openSendPanel(campaign.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00a884] text-white text-xs font-medium hover:bg-[#06cf9c] transition-colors"
+                      >
+                        <Send size={12} />
+                        {campaign.sent_count > 0 ? "Continuar" : "Enviar"}
+                      </button>
                     )}
+                    <button
+                      onClick={() => { setConfirmDeleteId(campaign.id); setDeletePassword(""); setDeletePasswordError(null); }}
+                      className="p-1.5 rounded hover:bg-red-500/10 text-[#8696a0] hover:text-red-400 transition-colors"
+                      title="Eliminar campaña"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
 
