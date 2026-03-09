@@ -52,9 +52,6 @@ export async function DELETE(
     .single();
 
   if (!campaign) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (campaign.status !== "draft") {
-    return NextResponse.json({ error: "Solo se pueden eliminar campañas en borrador" }, { status: 400 });
-  }
 
   // Delete recipients first (FK constraint)
   await service.from("campaign_recipients").delete().eq("campaign_id", id);

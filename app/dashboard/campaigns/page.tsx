@@ -74,7 +74,10 @@ function extractAllTemplateVars(template: MetaTemplate): TemplateVarKey[] {
       const nums = new Set<number>();
       for (const m of component.text.matchAll(/\{\{(\d+)\}\}/g)) {
         const n = parseInt(m[1]);
-        if (!nums.has(n)) { nums.add(n); vars.push({ label: `Header {{${n}}}`, key: `header_${n}`, componentType: "header", varNum: n }); }
+        if (!nums.has(n)) {
+          nums.add(n);
+          vars.push({ label: `Header {{${n}}}`, key: `header_${n}`, componentType: "header", varNum: n, fallback: component.example?.header_text?.[n - 1] });
+        }
       }
     }
 
@@ -82,7 +85,10 @@ function extractAllTemplateVars(template: MetaTemplate): TemplateVarKey[] {
       const nums = new Set<number>();
       for (const m of component.text.matchAll(/\{\{(\d+)\}\}/g)) {
         const n = parseInt(m[1]);
-        if (!nums.has(n)) { nums.add(n); vars.push({ label: `Cuerpo {{${n}}}`, key: `body_${n}`, componentType: "body", varNum: n }); }
+        if (!nums.has(n)) {
+          nums.add(n);
+          vars.push({ label: `Cuerpo {{${n}}}`, key: `body_${n}`, componentType: "body", varNum: n, fallback: component.example?.body_text?.[0]?.[n - 1] });
+        }
       }
     }
 
@@ -327,16 +333,24 @@ export default function CampaignsPage() {
         const components: unknown[] = [];
 
         if (headerVars.length > 0) {
-          components.push({
-            type: "header",
-            parameters: headerVars.map(v => ({ type: "text", text: row[columnMapping.variables[v.key] ?? ""] ?? "" })),
+          const params = headerVars.map(v => {
+            const col = columnMapping.variables[v.key];
+            const text = (col ? row[col] : undefined) ?? v.fallback ?? "";
+            return { type: "text", text };
           });
+          if (params.every(p => p.text)) {
+            components.push({ type: "header", parameters: params });
+          }
         }
         if (bodyVars.length > 0) {
-          components.push({
-            type: "body",
-            parameters: bodyVars.map(v => ({ type: "text", text: row[columnMapping.variables[v.key] ?? ""] ?? "" })),
+          const params = bodyVars.map(v => {
+            const col = columnMapping.variables[v.key];
+            const text = (col ? row[col] : undefined) ?? v.fallback ?? "";
+            return { type: "text", text };
           });
+          if (params.every(p => p.text)) {
+            components.push({ type: "body", parameters: params });
+          }
         }
         for (const bv of buttonVars) {
           const mappedCol = columnMapping.variables[bv.key];
@@ -348,6 +362,7 @@ export default function CampaignsPage() {
             try { suffix = encodeURI(decodeURI(rawSuffix)); }
             catch { suffix = encodeURI(rawSuffix); }
           }
+          if (!suffix) continue; // skip button component if suffix is empty — avoids #132012
           components.push({
             type: "button",
             sub_type: "url",
