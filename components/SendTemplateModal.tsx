@@ -84,8 +84,9 @@ export default function SendTemplateModal({ template, onClose }: Props) {
         .filter(
           (btn) =>
             btn.type === "URL" &&
+            btn.url_type !== "STATIC" &&
             (btn.url_type === "DYNAMIC" ||
-              Array.isArray(btn.example) ||
+              (Array.isArray(btn.example) && btn.example.length > 0) ||
               (btn.url ?? "").includes("{{"))
         ),
     [buttonsComp]

@@ -89,8 +89,9 @@ function extractAllTemplateVars(template: MetaTemplate): TemplateVarKey[] {
         // Same detection as SendTemplateModal: url_type DYNAMIC, OR has example array, OR URL contains {{
         const isDynamicUrl =
           btn.type === "URL" &&
+          btn.url_type !== "STATIC" &&
           (btn.url_type === "DYNAMIC" ||
-            Array.isArray(btn.example) ||
+            (Array.isArray(btn.example) && btn.example.length > 0) ||
             (btn.url ?? "").includes("{{"));
         if (isDynamicUrl) {
           vars.push({ label: `Botón URL "${btn.text}" {{1}}`, key: `button_${idx}_1`, componentType: "button", varNum: 1, buttonIndex: idx });
