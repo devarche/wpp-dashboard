@@ -179,6 +179,7 @@ export default function CampaignsPage() {
   const [sendResult, setSendResult] = useState<{ sent: number; failed: number; failures?: { phone: string; error: string }[] } | null>(null);
   const [sendPartial, setSendPartial] = useState(false);
   const [sendCount, setSendCount] = useState(0);
+  const [mediaHeaderUrl, setMediaHeaderUrl] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchRecipients = useCallback(async (campaignId: string) => {
@@ -312,6 +313,7 @@ export default function CampaignsPage() {
     setSendResult(null);
     setSendPartial(false);
     setSendCount(0);
+    setMediaHeaderUrl("");
     if (fileRef.current) fileRef.current.value = "";
   };
 
@@ -342,17 +344,20 @@ export default function CampaignsPage() {
             components.push({ type: "header", parameters: params });
           }
         } else if (tmpl) {
-          // Handle media headers (IMAGE / VIDEO / DOCUMENT) — send example handle as static param
+          // Handle media headers (IMAGE / VIDEO / DOCUMENT)
           const headerComp = tmpl.components.find(c => c.type.toUpperCase() === "HEADER");
           const fmt = headerComp?.format?.toUpperCase();
           if (fmt === "IMAGE" || fmt === "VIDEO" || fmt === "DOCUMENT") {
+            const paramType = fmt.toLowerCase();
+            const url = mediaHeaderUrl.trim();
             const handle = headerComp?.example?.header_handle?.[0];
-            if (handle) {
-              const paramType = fmt.toLowerCase();
-              components.push({
-                type: "header",
-                parameters: [{ type: paramType, [paramType]: { id: handle } }],
-              });
+            const mediaParam = url
+              ? { type: paramType, [paramType]: { link: url } }
+              : handle
+              ? { type: paramType, [paramType]: { id: handle } }
+              : null;
+            if (mediaParam) {
+              components.push({ type: "header", parameters: [mediaParam] });
             }
           }
         }
@@ -422,6 +427,9 @@ export default function CampaignsPage() {
     : null;
   const templateVars = activeCampaignTemplate ? extractAllTemplateVars(activeCampaignTemplate) : [];
   const effectiveSendCount = sendPartial ? Math.min(sendCount, csvRows.length) : csvRows.length;
+  const mediaHeaderFormat = activeCampaignTemplate?.components
+    .find(c => c.type.toUpperCase() === "HEADER" && (c.format === "IMAGE" || c.format === "VIDEO" || c.format === "DOCUMENT"))
+    ?.format?.toUpperCase() ?? null;
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
@@ -834,6 +842,22 @@ export default function CampaignsPage() {
                       <p className="text-[#8696a0] text-xs pt-1">
                         Este template no tiene variables de texto.
                       </p>
+                    )}
+
+                    {/* Media header URL input */}
+                    {mediaHeaderFormat && (
+                      <div className="border-t border-[#2a3942] pt-3">
+                        <p className="text-[#8696a0] text-[11px] mb-2">
+                          El template tiene un header de {mediaHeaderFormat === "IMAGE" ? "imagen" : mediaHeaderFormat === "VIDEO" ? "video" : "documento"}. Pegá la URL pública del archivo:
+                        </p>
+                        <input
+                          type="url"
+                          value={mediaHeaderUrl}
+                          onChange={(e) => setMediaHeaderUrl(e.target.value)}
+                          placeholder={`URL pública de la ${mediaHeaderFormat === "IMAGE" ? "imagen" : "media"} (https://...)`}
+                          className="w-full bg-[#2a3942] text-[#e9edef] placeholder-[#8696a0] rounded-lg px-3 py-1.5 text-xs outline-none"
+                        />
+                      </div>
                     )}
                   </div>
                 </section>
