@@ -209,11 +209,13 @@ export async function POST(
 
   // Update campaign counters + status
   // Accumulate sent_count in case this is a follow-up partial send
+  // Only mark completed if partial=false AND at least 1 message was sent
+  const newStatus = partial ? "draft" : (sent > 0 ? "completed" : "draft");
   await service
     .from("campaigns")
     .update({
       sent_count: (campaign.sent_count ?? 0) + sent,
-      status: partial ? "draft" : "completed",
+      status: newStatus,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);

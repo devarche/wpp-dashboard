@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import {
   CheckCheck,
   ChevronDown,
@@ -44,6 +45,7 @@ interface TemplateVarKey {
   componentType: "header" | "body" | "button";
   varNum: number;
   buttonIndex?: number;
+  fallback?: string;   // Example/static value to use when no column is mapped
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -86,15 +88,20 @@ function extractAllTemplateVars(template: MetaTemplate): TemplateVarKey[] {
 
     if (type === "BUTTONS" && component.buttons) {
       component.buttons.forEach((btn, idx) => {
-        // Same detection as SendTemplateModal: url_type DYNAMIC, OR has example array, OR URL contains {{
+        // Only truly dynamic: explicit url_type DYNAMIC, or URL contains {{
+        // A button with only an example[] but no {{ in URL is considered static
         const isDynamicUrl =
           btn.type === "URL" &&
-          btn.url_type !== "STATIC" &&
-          (btn.url_type === "DYNAMIC" ||
-            (Array.isArray(btn.example) && btn.example.length > 0) ||
-            (btn.url ?? "").includes("{{"));
+          (btn.url_type === "DYNAMIC" || (btn.url ?? "").includes("{{"));
         if (isDynamicUrl) {
-          vars.push({ label: `Botón URL "${btn.text}" {{1}}`, key: `button_${idx}_1`, componentType: "button", varNum: 1, buttonIndex: idx });
+          vars.push({
+            label: `Botón URL "${btn.text}" {{1}}`,
+            key: `button_${idx}_1`,
+            componentType: "button",
+            varNum: 1,
+            buttonIndex: idx,
+            fallback: btn.example?.[0],
+          });
         }
       });
     }
@@ -153,6 +160,8 @@ export default function CampaignsPage() {
   // Delete
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deletePasswordError, setDeletePasswordError] = useState<string | null>(null);
 
   // Send panel
   const [sendCampaignId, setSendCampaignId] = useState<string | null>(null);
@@ -236,12 +245,27 @@ export default function CampaignsPage() {
 
   // ── Delete campaign ─────────────────────────────────────────────────────────
   const handleDelete = async (id: string) => {
+    if (!deletePassword || deleting) return;
     setDeleting(true);
+    setDeletePasswordError(null);
     try {
+      // Verify user password before deleting
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.email) { setDeletePasswordError("No se pudo obtener el usuario."); return; }
+
+      const { error: authErr } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: deletePassword,
+      });
+      if (authErr) { setDeletePasswordError("Contraseña incorrecta."); return; }
+
       const res = await fetch(`/api/campaigns/${id}`, { method: "DELETE" });
       if (res.ok) {
         setCampaigns((prev) => prev.filter((c) => c.id !== id));
         setConfirmDeleteId(null);
+        setDeletePassword("");
+        setDeletePasswordError(null);
       }
     } finally {
       setDeleting(false);
@@ -315,7 +339,8 @@ export default function CampaignsPage() {
           });
         }
         for (const bv of buttonVars) {
-          const rawSuffix = row[columnMapping.variables[bv.key] ?? ""] ?? "";
+          const mappedCol = columnMapping.variables[bv.key];
+          const rawSuffix = (mappedCol ? row[mappedCol] : undefined) ?? bv.fallback ?? "";
           // Normalize: decode first (in case already encoded) then re-encode.
           // This prevents double-encoding while still encoding plain-text values.
           let suffix = "";
@@ -466,31 +491,13 @@ export default function CampaignsPage() {
                           {campaign.sent_count > 0 ? "Continuar" : "Enviar"}
                         </button>
 
-                        {confirmDeleteId === campaign.id ? (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => handleDelete(campaign.id)}
-                              disabled={deleting}
-                              className="text-[11px] px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 font-medium disabled:opacity-40"
-                            >
-                              {deleting ? "…" : "Eliminar"}
-                            </button>
-                            <button
-                              onClick={() => setConfirmDeleteId(null)}
-                              className="text-[11px] px-2 py-1 text-[#8696a0] hover:text-[#e9edef]"
-                            >
-                              No
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setConfirmDeleteId(campaign.id)}
-                            className="p-1.5 rounded hover:bg-red-500/10 text-[#8696a0] hover:text-red-400 transition-colors"
-                            title="Eliminar campaña"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => { setConfirmDeleteId(campaign.id); setDeletePassword(""); setDeletePasswordError(null); }}
+                          className="p-1.5 rounded hover:bg-red-500/10 text-[#8696a0] hover:text-red-400 transition-colors"
+                          title="Eliminar campaña"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </>
                     )}
                   </div>
@@ -619,6 +626,56 @@ export default function CampaignsPage() {
                 className="px-4 py-2 rounded-lg bg-[#00a884] text-white text-sm font-medium disabled:opacity-40 hover:bg-[#06cf9c] transition-colors"
               >
                 {creating ? "Creando…" : "Crear"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation modal ────────────────────────────────────── */}
+      {confirmDeleteId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => { setConfirmDeleteId(null); setDeletePassword(""); setDeletePasswordError(null); }}
+        >
+          <div
+            className="bg-[#202c33] rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 border border-[#2a3942]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-[#e9edef] font-semibold">Eliminar campaña</h2>
+              <button onClick={() => { setConfirmDeleteId(null); setDeletePassword(""); setDeletePasswordError(null); }}>
+                <X size={18} className="text-[#8696a0]" />
+              </button>
+            </div>
+            <p className="text-[#8696a0] text-sm mb-4">
+              Esta acción es irreversible. Ingresá tu contraseña para confirmar.
+            </p>
+            <input
+              type="password"
+              value={deletePassword}
+              onChange={(e) => { setDeletePassword(e.target.value); setDeletePasswordError(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleDelete(confirmDeleteId); }}
+              placeholder="Contraseña"
+              autoFocus
+              className="w-full bg-[#2a3942] text-[#e9edef] placeholder-[#8696a0] rounded-lg px-3 py-2 text-sm outline-none mb-2"
+            />
+            {deletePasswordError && (
+              <p className="text-red-400 text-xs mb-2">{deletePasswordError}</p>
+            )}
+            <div className="flex gap-2 mt-2 justify-end">
+              <button
+                onClick={() => { setConfirmDeleteId(null); setDeletePassword(""); setDeletePasswordError(null); }}
+                className="px-4 py-2 rounded-lg text-[#8696a0] text-sm hover:text-[#e9edef]"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleDelete(confirmDeleteId)}
+                disabled={deleting || !deletePassword}
+                className="px-4 py-2 rounded-lg bg-red-500 text-white text-sm font-medium disabled:opacity-40 hover:bg-red-600 transition-colors"
+              >
+                {deleting ? "Verificando…" : "Eliminar"}
               </button>
             </div>
           </div>
