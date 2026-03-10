@@ -527,6 +527,18 @@ export default function CampaignsPage() {
                         {campaign.sent_count > 0 ? "Continuar" : "Enviar"}
                       </button>
                     )}
+                    {campaign.status === "running" && (
+                      <button
+                        onClick={async () => {
+                          await fetch(`/api/campaigns/${campaign.id}`, { method: "PATCH" });
+                          await fetchCampaigns();
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-500 transition-colors"
+                        title="Resetear campaña trabada a Borrador"
+                      >
+                        Desbloquear
+                      </button>
+                    )}
                     <button
                       onClick={() => { setConfirmDeleteId(campaign.id); setDeletePassword(""); setDeletePasswordError(null); }}
                       className="p-1.5 rounded hover:bg-red-500/10 text-[#8696a0] hover:text-red-400 transition-colors"

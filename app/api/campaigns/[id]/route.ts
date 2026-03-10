@@ -33,7 +33,28 @@ export async function GET(
   return NextResponse.json({ campaign: { ...campaign, replied_count: repliedCount ?? 0 } });
 }
 
-// DELETE /api/campaigns/[id] — delete a draft campaign
+// PATCH /api/campaigns/[id] — reset a stuck campaign back to draft
+export async function PATCH(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id } = await params;
+  const service = createServiceClient();
+
+  const { error } = await service
+    .from("campaigns")
+    .update({ status: "draft", updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
+// DELETE /api/campaigns/[id] — delete a campaign
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
