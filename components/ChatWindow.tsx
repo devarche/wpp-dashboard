@@ -35,6 +35,8 @@ export default function ChatWindow({ conversation, allTags, onUpdate }: Props) {
   const [allUsers, setAllUsers] = useState<AuthUser[]>([]);
   const [showAssignees, setShowAssignees] = useState(false);
   const [showTags, setShowTags] = useState(false);
+  const [editingMsg, setEditingMsg] = useState<{ id: string; text: string } | null>(null);
+  const [editText, setEditText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -166,6 +168,37 @@ export default function ChatWindow({ conversation, allTags, onUpdate }: Props) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // ── Delete message ───────────────────────────────────────────────────────────
+  const handleDeleteMessage = async (id: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+    await fetch(`/api/messages/${id}`, { method: "DELETE" });
+  };
+
+  // ── Edit message ─────────────────────────────────────────────────────────────
+  const handleStartEdit = (id: string, currentText: string) => {
+    setEditingMsg({ id, text: currentText });
+    setEditText(currentText);
+  };
+
+  const handleConfirmEdit = async () => {
+    if (!editingMsg || !editText.trim()) return;
+    const { id } = editingMsg;
+    // Optimistic update
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === id
+          ? { ...m, content: { ...(m.content as Record<string, unknown>), text: { body: editText.trim() } } }
+          : m
+      )
+    );
+    setEditingMsg(null);
+    await fetch(`/api/messages/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: editText.trim() }),
+    });
+  };
 
   // ── Optimistic: send message ─────────────────────────────────────────────────
   const handleSend = async () => {
@@ -428,7 +461,14 @@ export default function ChatWindow({ conversation, allTags, onUpdate }: Props) {
             <p className="text-[#8696a0] text-sm">Sin mensajes</p>
           </div>
         ) : (
-          messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
+          messages.map((msg) => (
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              onDelete={handleDeleteMessage}
+              onEdit={handleStartEdit}
+            />
+          ))
         )}
         <div ref={bottomRef} />
       </div>
@@ -480,6 +520,33 @@ export default function ChatWindow({ conversation, allTags, onUpdate }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Edit message modal */}
+      {editingMsg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditingMsg(null)}>
+          <div className="bg-[#202c33] rounded-2xl p-5 w-full max-w-md border border-[#2a3942] shadow-2xl mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[#e9edef] text-sm font-medium">Editar mensaje</span>
+              <button onClick={() => setEditingMsg(null)}><X size={16} className="text-[#8696a0]" /></button>
+            </div>
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleConfirmEdit(); }
+                if (e.key === "Escape") setEditingMsg(null);
+              }}
+              autoFocus
+              rows={3}
+              className="w-full bg-[#2a3942] text-[#e9edef] rounded-lg px-3 py-2 text-sm outline-none resize-none mb-3"
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setEditingMsg(null)} className="px-4 py-2 rounded-lg text-[#8696a0] text-sm hover:text-[#e9edef]">Cancelar</button>
+              <button onClick={handleConfirmEdit} disabled={!editText.trim()} className="px-4 py-2 rounded-lg bg-[#00a884] text-white text-sm font-medium disabled:opacity-40">Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,8 +1,11 @@
-import { Check, CheckCheck, Clock, FileDown, Play, AlertCircle } from "lucide-react";
+import { useState } from "react";
+import { Check, CheckCheck, Clock, FileDown, Pencil, Play, Trash2, AlertCircle } from "lucide-react";
 import type { Message } from "@/types";
 
 interface Props {
   message: Message;
+  onDelete?: (id: string) => void;
+  onEdit?: (id: string, currentText: string) => void;
 }
 
 function formatTime(dateStr: string): string {
@@ -166,16 +169,53 @@ function MessageContent({ message }: { message: Message }) {
   );
 }
 
-export default function MessageBubble({ message }: Props) {
+export default function MessageBubble({ message, onDelete, onEdit }: Props) {
   const isOut = message.direction === "outbound";
+  const isSticker = message.type === "sticker";
+  const isText = message.type === "text";
+  const canAct = isOut && message.status !== "sending" && (onDelete || onEdit);
+  const [hovered, setHovered] = useState(false);
+
+  const currentText = (() => {
+    const c = message.content as Record<string, unknown>;
+    return (c.text as { body?: string } | undefined)?.body ?? "";
+  })();
 
   return (
-    <div className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
+    <div
+      className={`flex ${isOut ? "justify-end" : "justify-start"} group`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Action buttons — left of bubble for outbound */}
+      {isOut && canAct && hovered && (
+        <div className="flex items-center gap-0.5 mr-1.5 self-center">
+          {isText && onEdit && (
+            <button
+              onClick={() => onEdit(message.id, currentText)}
+              className="w-7 h-7 rounded-full bg-[#2a3942] flex items-center justify-center text-[#8696a0] hover:text-[#e9edef] hover:bg-[#3a4a53] transition-colors"
+              title="Editar mensaje"
+            >
+              <Pencil size={12} />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={() => onDelete(message.id)}
+              className="w-7 h-7 rounded-full bg-[#2a3942] flex items-center justify-center text-[#8696a0] hover:text-red-400 hover:bg-red-900/20 transition-colors"
+              title="Borrar mensaje"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
+      )}
+
       <div
         className={`max-w-[65%] rounded-xl px-3 py-2 shadow-sm transition-opacity ${
           message.status === "sending" ? "opacity-60" : "opacity-100"
         } ${
-          message.type === "sticker"
+          isSticker
             ? "bg-transparent shadow-none px-0 py-0"
             : isOut
             ? message.status === "failed" ? "bg-red-900/60 rounded-tr-none" : "bg-[#005c4b] rounded-tr-none"
