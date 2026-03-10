@@ -150,10 +150,22 @@ export async function POST(request: NextRequest) {
 
         // ── Delivery / read status updates ────────────────────────────────
         for (const statusUpdate of value.statuses ?? []) {
+          const wamid = statusUpdate.id as string;
+          const newStatus = statusUpdate.status as string;
+
           await supabase
             .from("messages")
-            .update({ status: statusUpdate.status })
-            .eq("wamid", statusUpdate.id);
+            .update({ status: newStatus })
+            .eq("wamid", wamid);
+
+          // Keep campaign_recipient status in sync (drives live counters)
+          if (newStatus === "delivered" || newStatus === "read") {
+            await supabase
+              .from("campaign_recipients")
+              .update({ status: newStatus })
+              .eq("wamid", wamid)
+              .in("status", newStatus === "read" ? ["sent", "delivered"] : ["sent"]);
+          }
         }
       }
     }

@@ -4,6 +4,8 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { sendTemplateMessage, WhatsAppApiError } from "@/lib/whatsapp";
 import { findOrCreateContact } from "@/lib/contacts";
 
+export const maxDuration = 300; // 5 min — allows up to ~2000 msgs per batch on Vercel Pro
+
 interface Recipient {
   phone: string;
   name?: string;

@@ -180,6 +180,7 @@ export default function CampaignsPage() {
   const [sendPartial, setSendPartial] = useState(false);
   const [sendCount, setSendCount] = useState(0);
   const [mediaHeaderUrl, setMediaHeaderUrl] = useState("");
+  const [sendProgress, setSendProgress] = useState<{ done: number; total: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchRecipients = useCallback(async (campaignId: string) => {
@@ -314,6 +315,7 @@ export default function CampaignsPage() {
     setSendPartial(false);
     setSendCount(0);
     setMediaHeaderUrl("");
+    setSendProgress(null);
     if (fileRef.current) fileRef.current.value = "";
   };
 
@@ -395,26 +397,53 @@ export default function CampaignsPage() {
       .filter(Boolean);
   }
 
-  // ── Send campaign ───────────────────────────────────────────────────────────
+  // ── Send campaign (batched to avoid serverless timeouts) ───────────────────
+  const BATCH_SIZE = 50;
+
   const handleSend = async (campaign: Campaign) => {
     if (!columnMapping.phoneCol || csvRows.length === 0 || sending) return;
     setSending(true);
     setSendResult(null);
+    setSendProgress(null);
 
     const rowsToSend = sendPartial ? csvRows.slice(0, sendCount) : csvRows;
-    const recipients = buildRecipients(campaign, rowsToSend);
+    const allRecipients = buildRecipients(campaign, rowsToSend) as { phone: string; components?: unknown[] }[];
+
+    const batches: typeof allRecipients[] = [];
+    for (let i = 0; i < allRecipients.length; i += BATCH_SIZE) {
+      batches.push(allRecipients.slice(i, i + BATCH_SIZE));
+    }
+
+    let totalSent = 0;
+    let totalFailed = 0;
+    const allFailures: { phone: string; error: string }[] = [];
 
     try {
-      const res = await fetch(`/api/campaigns/${campaign.id}/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipients, partial: sendPartial }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setSendResult({ sent: data.sent, failed: data.failed, failures: data.failures });
-        await fetchCampaigns();
+      for (let i = 0; i < batches.length; i++) {
+        const isLastBatch = i === batches.length - 1;
+        setSendProgress({ done: i * BATCH_SIZE, total: allRecipients.length });
+
+        const res = await fetch(`/api/campaigns/${campaign.id}/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recipients: batches[i],
+            partial: !isLastBatch || sendPartial,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          totalSent += data.sent ?? 0;
+          totalFailed += data.failed ?? 0;
+          allFailures.push(...(data.failures ?? []));
+        } else {
+          // Abort remaining batches on error
+          break;
+        }
       }
+      setSendProgress({ done: allRecipients.length, total: allRecipients.length });
+      setSendResult({ sent: totalSent, failed: totalFailed, failures: allFailures });
+      await fetchCampaigns();
     } finally {
       setSending(false);
     }
@@ -1030,8 +1059,18 @@ export default function CampaignsPage() {
             {/* Panel footer */}
             <div className="px-5 py-4 border-t border-[#2a3942] flex-shrink-0">
               {sending ? (
-                <div className="w-full py-2.5 rounded-lg bg-[#00a884]/20 text-[#00a884] text-sm text-center animate-pulse">
-                  Enviando {effectiveSendCount} mensajes… esto puede tardar unos minutos
+                <div className="w-full py-2.5 rounded-lg bg-[#00a884]/20 text-[#00a884] text-sm text-center space-y-1.5">
+                  <p className="animate-pulse">
+                    Enviando… {sendProgress ? `${sendProgress.done} / ${sendProgress.total}` : `0 / ${effectiveSendCount}`}
+                  </p>
+                  {sendProgress && sendProgress.total > 0 && (
+                    <div className="w-full bg-[#2a3942] rounded-full h-1.5 mx-auto">
+                      <div
+                        className="bg-[#00a884] h-1.5 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.round((sendProgress.done / sendProgress.total) * 100)}%` }}
+                      />
+                    </div>
+                  )}
                 </div>
               ) : sendResult ? (
                 <button

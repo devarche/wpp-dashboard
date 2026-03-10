@@ -30,16 +30,28 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // replied_count: count recipients with replied_at not null
+  // Compute all counts live from campaign_recipients (stored counters are unreliable)
   const enriched = await Promise.all(
     (campaigns ?? []).map(async (campaign) => {
-      const { count } = await service
-        .from("campaign_recipients")
-        .select("*", { count: "exact", head: true })
-        .eq("campaign_id", campaign.id)
-        .not("replied_at", "is", null);
+      const [{ count: sent }, { count: delivered }, { count: read }, { count: replied }] =
+        await Promise.all([
+          service.from("campaign_recipients").select("*", { count: "exact", head: true })
+            .eq("campaign_id", campaign.id).not("wamid", "is", null),
+          service.from("campaign_recipients").select("*", { count: "exact", head: true })
+            .eq("campaign_id", campaign.id).in("status", ["delivered", "read", "replied"]),
+          service.from("campaign_recipients").select("*", { count: "exact", head: true })
+            .eq("campaign_id", campaign.id).in("status", ["read", "replied"]),
+          service.from("campaign_recipients").select("*", { count: "exact", head: true })
+            .eq("campaign_id", campaign.id).not("replied_at", "is", null),
+        ]);
 
-      return { ...campaign, replied_count: count ?? 0 };
+      return {
+        ...campaign,
+        sent_count: sent ?? 0,
+        delivered_count: delivered ?? 0,
+        read_count: read ?? 0,
+        replied_count: replied ?? 0,
+      };
     })
   );
 
